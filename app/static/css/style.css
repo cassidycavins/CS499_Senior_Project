@@ -1,0 +1,23 @@
+
+body {
+    background-color: #f5f7fa;
+    font-family: Arial, sans-serif;
+}
+
+h1, h2 {
+    color: #243447;
+}
+
+.card {
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+}
+
+.navbar-brand {
+    font-weight: bold;
+}
