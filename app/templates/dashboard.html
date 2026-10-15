@@ -1,0 +1,66 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+Dashboard - AI Study Planner
+{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <h1>Dashboard</h1>
+    <p class="text-muted">
+        Welcome to your AI-assisted study planner.
+    </p>
+</div>
+
+<div class="d-flex justify-content-between align-items-center">
+    <h2>My Courses</h2>
+
+    <a href="/courses/add" class="btn btn-primary">
+        + Add Course
+    </a>
+</div>
+
+<div class="row mt-3">
+
+    {% for course in courses %}
+
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+
+            <div class="card-body">
+
+                <h5 class="card-title">
+                    {{ course.name }}
+                </h5>
+
+                <p class="card-text text-muted">
+                    {{ course.code }}
+                </p>
+
+                <button
+                    class="btn btn-outline-primary"
+                    disabled
+                >
+                    View Course
+                </button>
+
+            </div>
+
+        </div>
+    </div>
+
+    {% else %}
+
+    <div class="col-12">
+        <p class="text-muted">
+            No courses added yet.
+        </p>
+    </div>
+
+    {% endfor %}
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,86 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+Add Course - AI Study Planner
+{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+
+    <div class="col-md-7 col-lg-6">
+
+        <h1 class="mb-4">Add New Course</h1>
+
+        <div class="card">
+
+            <div class="card-body p-4">
+
+                <form method="post" action="/courses/add">
+
+                    <!-- Course Name -->
+                    <div class="mb-3">
+
+                        <label for="name" class="form-label">
+                            Course Name
+                        </label>
+
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="name"
+                            name="name"
+                            placeholder="e.g., Operating Systems"
+                            maxlength="100"
+                            required
+                        >
+
+                    </div>
+
+                    <!-- Course Code -->
+                    <div class="mb-3">
+
+                        <label for="code" class="form-label">
+                            Course Code
+                        </label>
+
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="code"
+                            name="code"
+                            placeholder="e.g., CS 490"
+                            maxlength="20"
+                            required
+                        >
+
+                    </div>
+
+                    <!-- Form Buttons -->
+                    <div class="d-flex gap-2">
+
+                        <button
+                            type="submit"
+                            class="btn btn-primary"
+                        >
+                            Create Course
+                        </button>
+
+                        <a href="/" class="btn btn-secondary">
+                            Cancel
+                        </a>
+
+                    </div>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}
