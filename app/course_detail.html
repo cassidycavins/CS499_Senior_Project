@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}
+{{ course.name }} - AI Study Planner
+{% endblock %}
+
+{% block content %}
+
+<!-- Back Navigation -->
+<a href="/" class="btn btn-link ps-0 mb-3">
+    &larr; Back to Dashboard
+</a>
+
+<!-- Course Information -->
+<div class="mb-4">
+    <h1>{{ course.name }}</h1>
+    <p class="text-muted">{{ course.code }}</p>
+</div>
+
+<!-- Course Materials -->
+<div class="card mb-4">
+    <div class="card-body">
+
+        <h3>Course Materials</h3>
+
+        <p class="text-muted">
+            No materials uploaded yet.
+        </p>
+
+        <button class="btn btn-primary" disabled>
+            Upload Materials - Coming Soon
+        </button>
+
+    </div>
+</div>
+
+<!-- Study Tools -->
+<div class="row">
+
+    <!-- Quizzes -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+
+                <h4>Quizzes</h4>
+
+                <p class="text-muted">
+                    Generate practice questions
+                    from your course materials.
+                </p>
+
+                <button
+                    class="btn btn-outline-primary"
+                    disabled
+                >
+                    Generate Quiz - Coming Soon
+                </button>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Flashcards -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+
+                <h4>Flashcards</h4>
+
+                <p class="text-muted">
+                    Review important concepts
+                    from your course materials.
+                </p>
+
+                <button
+                    class="btn btn-outline-primary"
+                    disabled
+                >
+                    Create Flashcards - Coming Soon
+                </button>
+
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}
