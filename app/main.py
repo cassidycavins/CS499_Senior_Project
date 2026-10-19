@@ -1,5 +1,4 @@
-
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
@@ -74,4 +73,29 @@ def add_course(
     return RedirectResponse(
         url="/",
         status_code=303
+    )
+
+
+# Display individual course page
+@app.get("/courses/{course_id}")
+def course_detail(request: Request, course_id: int):
+
+    # Find the requested course
+    course = next(
+        (c for c in courses if c["id"] == course_id),
+        None
+    )
+
+    # Return 404 if course does not exist
+    if course is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found"
+        )
+
+    # Display course information
+    return templates.TemplateResponse(
+        request=request,
+        name="course_detail.html",
+        context={"course": course}
     )
