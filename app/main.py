@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import crud
+from app.services.pdf_extractor import extract_text_from_pdf
 
 from pathlib import Path
 from uuid import uuid4
@@ -315,4 +316,66 @@ def delete_study_material(
     return RedirectResponse(
         url=f"/courses/{course_id}",
         status_code=303
+    )
+
+
+@app.get("/courses/{course_id}/materials/{material_id}/text")
+def view_material_text(
+    request: Request,
+    course_id: int,
+    material_id: int,
+    db: Session = Depends(get_db),
+):
+    # Verify that the course exists.
+    course = crud.get_course(db, course_id)
+
+    if course is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found",
+        )
+
+    # Retrieve the uploaded material from SQLite.
+    material = crud.get_study_material(db, material_id)
+
+    if material is None or material.course_id != course_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Study material not found",
+        )
+
+    # Verify that the PDF belongs to the uploads folder.
+    file_path = Path(material.file_path).resolve()
+
+    if not file_path.is_relative_to(UPLOAD_DIR.resolve()):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid study material path",
+        )
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Uploaded PDF file not found",
+        )
+
+    # Extract readable text from the PDF.
+    try:
+        extracted_text = extract_text_from_pdf(file_path)
+
+    except (ValueError, FileNotFoundError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        ) from error
+
+    # Render extracted text in a separate HTML page.
+    return templates.TemplateResponse(
+        request=request,
+        name="material_text.html",
+        context={
+            "course": course,
+            "material": material,
+            "extracted_text": extracted_text,
+        },
     )
