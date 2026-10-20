@@ -18,21 +18,74 @@
 </div>
 
 <!-- Course Materials -->
+
+<!-- Course Materials -->
 <div class="card mb-4">
     <div class="card-body">
 
-        <h3>Course Materials</h3>
+        <h3 class="mb-3">Course Materials</h3>
 
-        <p class="text-muted">
-            No materials uploaded yet.
-        </p>
+        <!-- Upload PDF Form -->
+        <form
+            method="post"
+            action="/courses/{{ course.id }}/materials/upload"
+            enctype="multipart/form-data"
+            class="mb-4"
+        >
+            <div class="mb-3">
+                <label for="file" class="form-label">
+                    Select PDF Study Material
+                </label>
 
-        <button class="btn btn-primary" disabled>
-            Upload Materials - Coming Soon
-        </button>
+                <input
+                    type="file"
+                    class="form-control"
+                    id="file"
+                    name="file"
+                    accept=".pdf,application/pdf"
+                    required
+                >
+
+                <div class="form-text">
+                    PDF files only. Maximum file size: 10 MB.
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                Upload Material
+            </button>
+        </form>
+
+        <hr>
+
+        <!-- Uploaded Materials List -->
+        <h5 class="mb-3">Uploaded Materials</h5>
+
+        {% if materials %}
+
+            <ul class="list-group">
+
+                {% for material in materials %}
+
+                    <li class="list-group-item">
+                        <span>{{ material.filename }}</span>
+                    </li>
+
+                {% endfor %}
+
+            </ul>
+
+        {% else %}
+
+            <p class="text-muted mb-0">
+                No materials uploaded yet.
+            </p>
+
+        {% endif %}
 
     </div>
 </div>
+
 
 <!-- Study Tools -->
 <div class="row">
