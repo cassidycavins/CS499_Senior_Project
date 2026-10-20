@@ -56,3 +56,20 @@ def get_study_materials(db: Session, course_id: int):
     )
 
     return db.scalars(statement).all()
+
+
+# Retrieve one uploaded study material by ID
+def get_study_material(
+    db: Session,
+    material_id: int
+):
+    return db.get(StudyMaterial, material_id)
+
+
+# Delete an uploaded study material from the database
+def delete_study_material(
+    db: Session,
+    material: StudyMaterial
+):
+    db.delete(material)
+    db.commit()

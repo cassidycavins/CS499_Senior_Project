@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import FastAPI, Request, Form, HTTPException, Depends, UploadFile, File
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 
 from sqlalchemy.orm import Session
 
@@ -177,6 +177,141 @@ async def upload_study_material(
     finally:
         await file.close()
 
+    return RedirectResponse(
+        url=f"/courses/{course_id}",
+        status_code=303
+    )
+
+
+# View an uploaded PDF in the browser
+@app.get("/courses/{course_id}/materials/{material_id}/view")
+def view_study_material(
+    course_id: int,
+    material_id: int,
+    db: Annotated[Session, Depends(get_db)]
+):
+    # Retrieve the material from the database
+    material = crud.get_study_material(db, material_id)
+
+    # Verify the material belongs to this course
+    if material is None or material.course_id != course_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Study material not found"
+        )
+
+    # Resolve and validate the stored file path
+    file_path = Path(material.file_path).resolve()
+    upload_directory = UPLOAD_DIR.resolve()
+
+    # Prevent access to files outside the uploads directory
+    if not file_path.is_relative_to(upload_directory):
+        raise HTTPException(
+            status_code=403,
+            detail="File access denied"
+        )
+
+    # Check whether the PDF exists
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="PDF file not found"
+        )
+
+    # Display PDF directly in the browser
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        content_disposition_type="inline",
+        filename=material.filename
+    )
+
+
+# Download an uploaded PDF study material
+@app.get("/courses/{course_id}/materials/{material_id}/download")
+def download_study_material(
+    course_id: int,
+    material_id: int,
+    db: Annotated[Session, Depends(get_db)]
+):
+    # Retrieve the material from the database
+    material = crud.get_study_material(db, material_id)
+
+    # Verify the material belongs to the correct course
+    if material is None or material.course_id != course_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Study material not found"
+        )
+
+    # Resolve and validate the file path
+    file_path = Path(material.file_path).resolve()
+    upload_directory = UPLOAD_DIR.resolve()
+
+    # Prevent access to files outside the uploads directory
+    if not file_path.is_relative_to(upload_directory):
+        raise HTTPException(
+            status_code=403,
+            detail="File access denied"
+        )
+
+    # Verify that the PDF exists
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="PDF file not found"
+        )
+
+    # Force the browser to download the PDF
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        filename=material.filename,
+        content_disposition_type="attachment"
+    )
+
+
+# Delete an uploaded PDF study material
+@app.post("/courses/{course_id}/materials/{material_id}/delete")
+def delete_study_material(
+    course_id: int,
+    material_id: int,
+    db: Annotated[Session, Depends(get_db)]
+):
+    # Retrieve the material
+    material = crud.get_study_material(db, material_id)
+
+    # Verify that the material belongs to this course
+    if material is None or material.course_id != course_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Study material not found"
+        )
+
+    # Resolve the stored file path
+    file_path = Path(material.file_path).resolve()
+    upload_directory = UPLOAD_DIR.resolve()
+
+    # Prevent deletion of files outside the uploads directory
+    if not file_path.is_relative_to(upload_directory):
+        raise HTTPException(
+            status_code=403,
+            detail="File access denied"
+        )
+
+    # Delete the stored PDF if it exists
+    try:
+        file_path.unlink(missing_ok=True)
+    except OSError:
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to delete the stored PDF"
+        )
+
+    # Remove the corresponding database record
+    crud.delete_study_material(db, material)
+
+    # Return to the course page
     return RedirectResponse(
         url=f"/courses/{course_id}",
         status_code=303
