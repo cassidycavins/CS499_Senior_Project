@@ -22,3 +22,7 @@ __pycache__/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Ignore uploaded study materials
+app/uploads/*
+!app/uploads/.gitkeep
