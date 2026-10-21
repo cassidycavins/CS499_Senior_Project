@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 
 {% block title %}
@@ -27,7 +28,10 @@
             No materials uploaded yet.
         </p>
 
-        <button class="btn btn-primary" disabled>
+        <button
+            class="btn btn-primary"
+            disabled
+        >
             Upload Materials - Coming Soon
         </button>
 
@@ -49,12 +53,12 @@
                     from your course materials.
                 </p>
 
-                <button
+                <a
+                    href="/study-tools/?course_id={{ course.id }}&mode=quiz"
                     class="btn btn-outline-primary"
-                    disabled
                 >
-                    Generate Quiz - Coming Soon
-                </button>
+                    Generate Quiz
+                </a>
 
             </div>
         </div>
@@ -72,12 +76,12 @@
                     from your course materials.
                 </p>
 
-                <button
+                <a
+                    href="/study-tools/?course_id={{ course.id }}&mode=flashcards"
                     class="btn btn-outline-primary"
-                    disabled
                 >
-                    Create Flashcards - Coming Soon
-                </button>
+                    Create Flashcards
+                </a>
 
             </div>
         </div>

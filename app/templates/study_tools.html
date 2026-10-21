@@ -1,0 +1,571 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title>AI Study Tools - Study Planner</title>
+
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet">
+</head>
+
+<body class="bg-light">
+
+<div class="container py-5">
+
+    {% if course %}
+        <a href="/courses/{{ course.id }}"
+           class="btn btn-link ps-0 mb-3">
+            &larr; Back to {{ course.name }}
+        </a>
+
+        <h1>{{ course.name }} - Study Tools</h1>
+        <p class="text-muted">{{ course.code }}</p>
+    {% else %}
+        <h1>Study Tools</h1>
+    {% endif %}
+
+    <p class="text-muted">
+        Create practice questions and flashcards
+        from your study notes.
+    </p>
+
+    <div class="alert alert-info">
+        <strong>AI-Powered Study Tools</strong>
+        <p class="mb-0">
+            Practice quizzes are generated using a local AI model
+            based on your provided study material.
+            Questions include supporting source excerpts.
+            Flashcards and quizzes are generated using a local AI model
+            based on your provided study material.
+            Both include supporting source excerpts.
+        </p>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+
+            <label for="sourceTitle" class="form-label">
+                Source title
+            </label>
+
+            <input
+                id="sourceTitle"
+                class="form-control mb-3"
+                maxlength="200"
+                value="Pasted study material">
+
+            <label for="studyText" class="form-label">
+                Study material
+            </label>
+
+            <textarea
+                id="studyText"
+                class="form-control mb-3"
+                rows="7"
+                maxlength="20000"
+                placeholder="Paste your study notes here..."
+                required></textarea>
+
+            <label for="itemCount" class="form-label">
+                Number of items
+            </label>
+
+            <select id="itemCount" class="form-select mb-3">
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+            </select>
+
+            <div class="d-flex flex-wrap gap-2 mt-3">
+
+                <button
+                    id="generateQuizBtn"
+                    type="button"
+                    class="btn btn-primary"
+                    onclick="generate('quiz')">
+                    Generate Quiz
+                </button>
+
+                <button
+                    id="generateFlashcardsBtn"
+                    type="button"
+                    class="btn btn-success"
+                    onclick="generate('flashcards')">
+                    Generate Flashcards
+                </button>
+
+            </div>
+
+            {% if mode == "flashcards" %}
+                <p class="text-muted mt-2 mb-0">
+                    Flashcard mode selected.
+                </p>
+            {% endif %}
+
+        </div>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loadingIndicator"
+         class="text-center my-4"
+         role="status"
+         aria-live="polite"
+         hidden>
+
+        <div class="spinner-border text-primary"
+             aria-hidden="true"></div>
+
+        <p class="mt-3">
+            Generating study content using Ollama.
+            This may take a minute...
+        </p>
+    </div>
+
+    <!-- Generated Quiz or Flashcards -->
+    <div id="results" aria-live="polite"></div>
+
+</div>
+
+<script>
+let currentQuestions = [];
+let currentQuizId = null;
+let isBusy = false;
+
+
+function makeElement(tag, text, className = "") {
+    const element = document.createElement(tag);
+    element.textContent = text;
+    element.className = className;
+    return element;
+}
+
+
+
+function addCitation(parent, citation) {
+    if (!citation) {
+        return;
+    }
+
+    const section = document.createElement("div");
+    section.className = "small text-muted mt-3";
+
+    const sourceName =
+        citation.filename ||
+        citation.title ||
+        "Study material";
+
+    section.appendChild(
+        makeElement(
+            "strong",
+            "Source: " + sourceName
+        )
+    );
+
+    const details = [];
+
+    if (citation.page_number != null) {
+        details.push("Page " + citation.page_number);
+    }
+
+    if (citation.slide_number != null) {
+        details.push("Slide " + citation.slide_number);
+    }
+
+    if (details.length > 0) {
+        section.appendChild(
+            makeElement(
+                "p",
+                details.join(" | "),
+                "mb-1"
+            )
+        );
+    }
+
+    section.appendChild(
+        makeElement(
+            "p",
+            citation.excerpt || "",
+            "mt-1 mb-0"
+        )
+    );
+
+    parent.appendChild(section);
+}
+
+
+
+function showError(message) {
+    const results = document.getElementById("results");
+
+    results.appendChild(
+        makeElement(
+            "div",
+            message,
+            "alert alert-danger"
+        )
+    );
+}
+
+
+function setLoading(loading) {
+    isBusy = loading;
+
+    document.getElementById("loadingIndicator").hidden =
+        !loading;
+
+    document.getElementById("generateQuizBtn").disabled =
+        loading;
+
+    document.getElementById("generateFlashcardsBtn").disabled =
+        loading;
+}
+
+
+async function generate(type) {
+    if (isBusy) {
+        return;
+    }
+
+    const text = document.getElementById("studyText").value;
+    const title = document.getElementById("sourceTitle").value;
+    const count = Number(
+        document.getElementById("itemCount").value
+    );
+
+    const results = document.getElementById("results");
+
+    results.replaceChildren();
+    currentQuestions = [];
+    currentQuizId = null;
+
+    if (!text.trim()) {
+        results.appendChild(
+            makeElement(
+                "div",
+                "Please enter study material.",
+                "alert alert-warning"
+            )
+        );
+        return;
+    }
+
+    const endpoint = type === "quiz"
+        ? "/study-tools/generate-quiz"
+        : "/study-tools/generate-flashcards";
+
+    setLoading(true);
+
+    try {
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                text,
+                title,
+                count
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                typeof data.detail === "string"
+                    ? data.detail
+                    : "Generation failed."
+            );
+        }
+
+        if (type === "quiz") {
+            if (!data.quiz_id || !Array.isArray(data.questions)) {
+                throw new Error("Invalid quiz response.");
+            }
+
+            currentQuizId = data.quiz_id;
+            renderQuiz(data.questions);
+
+        } else {
+            if (!Array.isArray(data.flashcards)) {
+                throw new Error("Invalid flashcard response.");
+            }
+
+            renderFlashcards(data.flashcards);
+        }
+
+    } catch (error) {
+        showError(error.message || "An unexpected error occurred.");
+
+    } finally {
+        setLoading(false);
+    }
+}
+
+
+function renderQuiz(questions) {
+    currentQuestions = questions;
+
+    const results = document.getElementById("results");
+
+    results.appendChild(
+        makeElement("h2", "Practice Quiz", "mb-3")
+    );
+
+    if (questions.length === 0) {
+        results.appendChild(
+            makeElement(
+                "p",
+                "No questions were generated.",
+                "alert alert-warning"
+            )
+        );
+        return;
+    }
+
+    questions.forEach((question, index) => {
+        const card = document.createElement("div");
+        card.className = "card mb-3";
+
+        const body = document.createElement("div");
+        body.className = "card-body";
+
+        body.appendChild(
+            makeElement(
+                "h5",
+                `${index + 1}. ${question.question}`
+            )
+        );
+
+        question.choices.forEach((choice, choiceIndex) => {
+            const label = document.createElement("label");
+            label.className = "d-block my-2";
+
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.name = `question-${question.id}`;
+            input.value = choiceIndex;
+            input.className = "form-check-input me-2";
+
+            label.append(
+                input,
+                document.createTextNode(choice)
+            );
+
+            body.appendChild(label);
+        });
+
+        card.appendChild(body);
+        results.appendChild(card);
+    });
+
+    const button = makeElement(
+        "button",
+        "Submit Quiz",
+        "btn btn-primary mb-3"
+    );
+
+    button.id = "submitQuizBtn";
+    button.type = "button";
+
+    button.addEventListener("click", submitQuiz);
+
+    results.appendChild(button);
+}
+
+
+async function submitQuiz() {
+    if (isBusy || !currentQuizId) {
+        return;
+    }
+
+    const answers = {};
+
+    currentQuestions.forEach(question => {
+        const selected = document.querySelector(
+            `input[name="question-${question.id}"]:checked`
+        );
+
+        if (selected) {
+            answers[String(question.id)] = Number(
+                selected.value
+            );
+        }
+    });
+
+    const submitButton = document.getElementById(
+        "submitQuizBtn"
+    );
+
+    submitButton.disabled = true;
+    submitButton.textContent = "Grading Quiz...";
+
+    try {
+        const response = await fetch(
+            "/study-tools/submit-quiz",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    quiz_id: currentQuizId,
+                    answers
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                typeof data.detail === "string"
+                    ? data.detail
+                    : "Quiz grading failed."
+            );
+        }
+
+        displayQuizResults(data);
+
+        // Prevent repeated submission from the UI.
+        currentQuizId = null;
+        submitButton.remove();
+
+        document.querySelectorAll(
+            'input[type="radio"][name^="question-"]'
+        ).forEach(input => {
+            input.disabled = true;
+        });
+
+    } catch (error) {
+        showError(
+            error.message || "Unable to grade quiz."
+        );
+
+        submitButton.disabled = false;
+        submitButton.textContent = "Submit Quiz";
+    }
+}
+
+
+function displayQuizResults(data) {
+    const results = document.getElementById("results");
+
+    // Remove previous grading feedback if present.
+    results.querySelectorAll(
+        ".quiz-feedback, .quiz-score"
+    ).forEach(element => element.remove());
+
+    const score = makeElement(
+        "h3",
+        `Your Score: ${data.correct}/${data.total} (${data.percentage}%)`,
+        "quiz-score alert alert-info mb-4"
+    );
+
+    results.prepend(score);
+
+    data.results.forEach((result, index) => {
+        const feedback = document.createElement("div");
+
+        feedback.className = result.is_correct
+            ? "quiz-feedback alert alert-success"
+            : "quiz-feedback alert alert-warning";
+
+        feedback.appendChild(
+            makeElement(
+                "h6",
+                `Question ${index + 1}: ${
+                    result.is_correct ? "Correct" : "Incorrect"
+                }`
+            )
+        );
+
+        const question = currentQuestions.find(
+            item => item.id === result.id
+        );
+
+        if (question && Number.isInteger(result.correct_index)) {
+            const correctAnswer =
+                question.choices[result.correct_index];
+
+            feedback.appendChild(
+                makeElement(
+                    "p",
+                    "Correct answer: " + correctAnswer,
+                    "mb-2"
+                )
+            );
+        }
+
+        feedback.appendChild(
+            makeElement(
+                "p",
+                result.explanation || "",
+                "mb-2"
+            )
+        );
+
+        addCitation(feedback, result.citation);
+
+        results.appendChild(feedback);
+    });
+}
+
+
+function renderFlashcards(cards) {
+    const results = document.getElementById("results");
+
+    results.appendChild(
+        makeElement("h2", "Flashcards", "mb-3")
+    );
+
+    cards.forEach(card => {
+        const container = document.createElement("div");
+        container.className = "card mb-3";
+
+        const body = document.createElement("div");
+        body.className = "card-body";
+
+        body.appendChild(
+            makeElement("h5", card.front)
+        );
+
+        const answer = document.createElement("div");
+        answer.hidden = true;
+
+        answer.appendChild(
+            makeElement("p", card.back, "mt-3")
+        );
+
+        addCitation(answer, card.citation);
+
+        const button = makeElement(
+            "button",
+            "Flip Card",
+            "btn btn-outline-primary"
+        );
+
+        button.type = "button";
+
+        button.addEventListener("click", () => {
+            answer.hidden = !answer.hidden;
+
+            button.textContent = answer.hidden
+                ? "Flip Card"
+                : "Hide Answer";
+        });
+
+        body.append(button, answer);
+        container.appendChild(body);
+        results.appendChild(container);
+    });
+}
+</script>
+
+</body>
+</html>

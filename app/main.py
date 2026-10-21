@@ -9,8 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import crud
+from app.study_tools.routes import router as study_tools_router
 
 app = FastAPI()
+app.include_router(study_tools_router)
 
 # Configure HTML templates
 templates = Jinja2Templates(directory="app/templates")
