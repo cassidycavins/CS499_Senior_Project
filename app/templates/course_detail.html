@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 
 {% block title %}
@@ -16,8 +17,6 @@
     <h1>{{ course.name }}</h1>
     <p class="text-muted">{{ course.code }}</p>
 </div>
-
-<!-- Course Materials -->
 
 <!-- Course Materials -->
 <div class="card mb-4">
@@ -58,87 +57,84 @@
 
         <hr>
 
-        
-<!-- Uploaded Materials List -->
-<h5 class="mb-3">Uploaded Materials</h5>
+        <!-- Uploaded Materials List -->
+        <h5 class="mb-3">Uploaded Materials</h5>
 
-{% if materials %}
+        {% if materials %}
 
-    <ul class="list-group">
+            <ul class="list-group">
 
-        {% for material in materials %}
+                {% for material in materials %}
 
-            <li class="list-group-item">
+                    <li class="list-group-item">
 
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
 
-                    <!-- PDF Filename -->
-                    <span class="text-break">
-                        {{ material.filename }}
-                    </span>
+                            <!-- PDF Filename -->
+                            <span class="text-break">
+                                {{ material.filename }}
+                            </span>
 
-                    <!-- Material Actions -->
-                    <div class="d-flex flex-wrap gap-2">
+                            <!-- Material Actions -->
+                            <div class="d-flex flex-wrap gap-2">
 
-                        <!-- View PDF -->
-                        <a
-                            href="/courses/{{ course.id }}/materials/{{ material.id }}/view"
-                            class="btn btn-sm btn-outline-primary"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
-                            View
-                        </a>
+                                <!-- View PDF -->
+                                <a
+                                    href="/courses/{{ course.id }}/materials/{{ material.id }}/view"
+                                    class="btn btn-sm btn-outline-primary"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    View
+                                </a>
 
-                        <!-- Download PDF -->
-                        <a
-                            href="/courses/{{ course.id }}/materials/{{ material.id }}/download"
-                            class="btn btn-sm btn-outline-success"
-                        >
-                            Download
-                        </a>
+                                <!-- Download PDF -->
+                                <a
+                                    href="/courses/{{ course.id }}/materials/{{ material.id }}/download"
+                                    class="btn btn-sm btn-outline-success"
+                                >
+                                    Download
+                                </a>
 
-                        
-                        <a
-                            href="/courses/{{ course.id }}/materials/{{ material.id }}/text"
-                            class="btn btn-sm btn-outline-success"
-                        >
-                            Extract Text
-                        </a>
+                                <!-- Extract Text -->
+                                <a
+                                    href="/courses/{{ course.id }}/materials/{{ material.id }}/text"
+                                    class="btn btn-sm btn-outline-info"
+                                >
+                                    Extract Text
+                                </a>
 
+                                <!-- Delete PDF -->
+                                <form
+                                    method="post"
+                                    action="/courses/{{ course.id }}/materials/{{ material.id }}/delete"
+                                    onsubmit="return confirm('Are you sure you want to permanently delete this material?');"
+                                >
+                                    <button
+                                        type="submit"
+                                        class="btn btn-sm btn-outline-danger"
+                                    >
+                                        Delete
+                                    </button>
+                                </form>
 
-                        <!-- Delete PDF -->
-                        <form
-                            method="post"
-                            action="/courses/{{ course.id }}/materials/{{ material.id }}/delete"
-                            onsubmit="return confirm('Are you sure you want to permanently delete this material?');"
-                        >
-                            <button
-                                type="submit"
-                                class="btn btn-sm btn-outline-danger"
-                            >
-                                Delete
-                            </button>
-                        </form>
+                            </div>
 
-                    </div>
+                        </div>
 
-                </div>
+                    </li>
 
-            </li>
+                {% endfor %}
 
-        {% endfor %}
+            </ul>
 
-    </ul>
+        {% else %}
 
-{% else %}
+            <p class="text-muted mb-0">
+                No materials uploaded yet.
+            </p>
 
-    <p class="text-muted mb-0">
-        No materials uploaded yet.
-    </p>
-
-{% endif %}
-
+        {% endif %}
 
     </div>
 </div>
@@ -155,16 +151,17 @@
                 <h4>Quizzes</h4>
 
                 <p class="text-muted">
-                    Generate practice questions
-                    from your course materials.
+                    Generate AI-powered practice questions
+                    from your study notes, with supporting
+                    source citations and automatic grading.
                 </p>
 
-                <button
+                <a
+                    href="/study-tools/?course_id={{ course.id }}&mode=quiz"
                     class="btn btn-outline-primary"
-                    disabled
                 >
-                    Generate Quiz - Coming Soon
-                </button>
+                    Generate Quiz
+                </a>
 
             </div>
         </div>
@@ -178,16 +175,18 @@
                 <h4>Flashcards</h4>
 
                 <p class="text-muted">
-                    Review important concepts
-                    from your course materials.
+                    Create AI-generated flashcards from
+                    your study notes, with supporting
+                    source excerpts and interactive
+                    answer reveal.
                 </p>
 
-                <button
+                <a
+                    href="/study-tools/?course_id={{ course.id }}&mode=flashcards"
                     class="btn btn-outline-primary"
-                    disabled
                 >
-                    Create Flashcards - Coming Soon
-                </button>
+                    Create Flashcards
+                </a>
 
             </div>
         </div>
