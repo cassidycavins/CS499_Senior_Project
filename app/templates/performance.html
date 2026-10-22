@@ -1,0 +1,126 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+Quiz Performance - AI Study Planner
+{% endblock %}
+
+{% block content %}
+
+<div class="container py-4">
+
+    <h1>Quiz Performance</h1>
+    <p class="text-muted">{{ course.name }} ({{ course.code }})</p>
+
+    <div class="row g-3 mb-4">
+
+        <!-- Average quiz score -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5>Average Score</h5>
+                    <h2>
+                        {% if average_score is not none %}
+                            {{ average_score }}%
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </h2>
+                </div>
+            </div>
+        </div>
+
+        <!-- Number of completed quizzes -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5>Quizzes Taken</h5>
+                    <h2>{{ total_attempts }}</h2>
+                </div>
+            </div>
+        </div>
+
+        <!-- Topics requiring additional review -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5>Weak Topics</h5>
+                    <h2>{{ weak_topics|length }}</h2>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <h3>Topic Performance</h3>
+
+    {% if topic_summary %}
+
+        {% for topic in topic_summary %}
+
+        <div class="card mb-3">
+            <div class="card-body">
+
+                <div class="d-flex justify-content-between">
+                    <h5>{{ topic.topic }}</h5>
+                    <strong>{{ topic.score }}%</strong>
+                </div>
+
+                <!-- Highlight topics scoring below 70%. -->
+                <div class="progress mb-2">
+                    <div
+                        class="progress-bar
+                        {% if topic.needs_review %}
+                            bg-danger
+                        {% elif topic.score < 80 %}
+                            bg-warning
+                        {% else %}
+                            bg-success
+                        {% endif %}"
+                        role="progressbar"
+                        style="width: {{ topic.score | int }}%;"
+                        aria-valuenow="{{ topic.score }}"
+                        aria-valuemin="0"
+                        aria-valuemax="100">
+                    </div>
+                </div>
+
+                <small class="text-muted">
+                    {{ topic.status }}
+                    {% if topic.needs_review %}
+                        - Additional review recommended
+                    {% endif %}
+                </small>
+
+            </div>
+        </div>
+
+        {% endfor %}
+
+    {% else %}
+
+        <div class="alert alert-info">
+            No topic performance data is available yet.
+        </div>
+
+    {% endif %}
+
+    <div class="mt-4">
+
+        <a
+            href="/courses/{{ course.id }}/quiz-history"
+            class="btn btn-primary">
+            View Quiz History
+        </a>
+
+        <a
+            href="/courses/{{ course.id }}"
+            class="btn btn-outline-secondary">
+            Back to Course
+        </a>
+
+    </div>
+
+</div>
+
+{% endblock %}
