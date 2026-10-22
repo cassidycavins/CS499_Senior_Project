@@ -1,0 +1,87 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+Quiz History - AI Study Planner
+{% endblock %}
+
+{% block content %}
+
+<div class="container py-4">
+
+    <h1>Quiz History</h1>
+    <p class="text-muted">{{ course.name }} ({{ course.code }})</p>
+
+    {% if attempts %}
+
+    <div class="table-responsive">
+
+        <table class="table table-striped table-hover">
+
+            <thead>
+                <tr>
+                    <th>Attempt ID</th>
+                    <th>Date</th>
+                    <th>Correct Answers</th>
+                    <th>Total Questions</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for attempt in attempts %}
+
+                <tr>
+                    <td>{{ attempt.id }}</td>
+
+                    <td>
+                        {{ attempt.completed_at.strftime('%m/%d/%Y %I:%M %p') }}
+                    </td>
+
+                    <td>{{ attempt.correct_answers }}</td>
+
+                    <td>{{ attempt.total_questions }}</td>
+
+                    <td>
+                        {% if attempt.score < 60 %}
+                            <span class="badge bg-danger">
+                                {{ attempt.score }}%
+                            </span>
+                        {% elif attempt.score < 80 %}
+                            <span class="badge bg-warning text-dark">
+                                {{ attempt.score }}%
+                            </span>
+                        {% else %}
+                            <span class="badge bg-success">
+                                {{ attempt.score }}%
+                            </span>
+                        {% endif %}
+                    </td>
+                </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+    {% else %}
+
+        <div class="alert alert-info">
+            No quizzes have been completed for this course.
+        </div>
+
+    {% endif %}
+
+    <a
+        href="/courses/{{ course.id }}/performance"
+        class="btn btn-outline-secondary mt-3">
+        Back to Performance
+    </a>
+
+</div>
+
+{% endblock %}

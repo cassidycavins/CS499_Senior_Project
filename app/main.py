@@ -9,12 +9,15 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import crud
+from app.routes.performance import router as performance_router
 from app.services.pdf_extractor import extract_text_from_pdf
 
 from pathlib import Path
 from uuid import uuid4
 
 app = FastAPI()
+# Register quiz performance and history routes.
+app.include_router(performance_router)
 
 # Configure uploaded study materials
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
