@@ -46,55 +46,28 @@
         </p>
     </div>
 
-    <div class="card shadow-sm mb-4">
-        <div class="card-body">
-
-            <label for="sourceTitle" class="form-label">
-                {% if course and materials %}
+    {% if course and materials %}
     <label for="materialSource" class="form-label">
-        Study material source
+        Select an uploaded PDF
     </label>
 
     <select
         id="materialSource"
-        class="form-select mb-3"
-        onchange="toggleMaterialSource()">
-
-        <option value="manual">
-            Paste study notes
-        </option>
+        class="form-select mb-3">
 
         {% for material in materials %}
             <option value="{{ material.id }}">
-                PDF: {{ material.filename }}
+                {{ material.filename }}
             </option>
         {% endfor %}
     </select>
 
-    <p class="text-muted small">
-        Select an uploaded PDF or paste your own study notes.
-    </p>
-{% endif %}
-                Source title
-            </label>
-
-            <input
-                id="sourceTitle"
-                class="form-control mb-3"
-                maxlength="200"
-                value="Pasted study material">
-
-            <label for="studyText" class="form-label">
-                Study material
-            </label>
-
-            <textarea
-                id="studyText"
-                class="form-control mb-3"
-                rows="7"
-                maxlength="20000"
-                placeholder="Paste your study notes here..."
-                required></textarea>
+    {% else %}
+    <div class="alert alert-warning">
+        No PDFs are available. Please upload a PDF
+        to your course before generating study material.
+    </div>
+    {% endif %}
 
             <label for="itemCount" class="form-label">
                 Number of items
@@ -160,21 +133,6 @@
 let currentQuestions = [];
 let currentQuizId = null;
 let isBusy = false;
-
-function toggleMaterialSource() {
-    const sourceSelect = document.getElementById("materialSource");
-
-    // The dropdown is only available when a course has uploaded PDFs.
-    const usingPdf = sourceSelect && sourceSelect.value !== "manual";
-
-    const sourceTitle = document.getElementById("sourceTitle");
-    const studyText = document.getElementById("studyText");
-
-    // Manual inputs are not needed when generating from a PDF.
-    sourceTitle.disabled = Boolean(usingPdf);
-    studyText.disabled = Boolean(usingPdf);
-    studyText.required = !usingPdf;
-}
 
 
 function makeElement(tag, text, className = "") {
@@ -271,53 +229,30 @@ async function generate(type) {
         return;
     }
 
-    const text = document.getElementById("studyText").value;
-    const title = document.getElementById("sourceTitle").value;
-    const count = Number(
-        document.getElementById("itemCount").value
-    );
-
+    const sourceSelect = document.getElementById("materialSource");
+    const count = Number(document.getElementById("itemCount").value);
     const results = document.getElementById("results");
 
     results.replaceChildren();
     currentQuestions = [];
     currentQuizId = null;
 
-    const sourceSelect = document.getElementById("materialSource");
-    const usingPdf = sourceSelect && sourceSelect.value !== "manual";
-
-    if (!usingPdf && !text.trim()) {
-        results.appendChild(
-            makeElement(
-                "div",
-                "Please enter study material.",
-                "alert alert-warning"
-            )
-        );
+    // Require an uploaded PDF before generating study content.
+    if (!sourceSelect || !sourceSelect.value) {
+        showError("Please upload a PDF to your course first.");
         return;
     }
 
-    // Select the appropriate endpoint based on the material source.
-    const endpoint = usingPdf
-        ? (type === "quiz"
-            ? "/study-tools/generate-quiz-from-material"
-            : "/study-tools/generate-flashcards-from-material")
-        : (type === "quiz"
-            ? "/study-tools/generate-quiz"
-            : "/study-tools/generate-flashcards");
+    // Only PDF-based generation endpoints are used.
+    const endpoint = type === "quiz"
+        ? "/study-tools/generate-quiz-from-material"
+        : "/study-tools/generate-flashcards-from-material";
 
-    // PDF requests identify the stored material; manual requests send text.
-    const payload = usingPdf
-        ? {
-            course_id: Number({{ course.id if course else 'null' }}),
-            material_id: Number(sourceSelect.value),
-            count
-        }
-        : {
-            text,
-            title,
-            count
-        };
+    const payload = {
+        course_id: {{ course.id if course else 'null' }},
+        material_id: Number(sourceSelect.value),
+        count: count
+    };
 
     setLoading(true);
 

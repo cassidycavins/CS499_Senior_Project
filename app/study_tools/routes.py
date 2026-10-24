@@ -48,20 +48,7 @@ templates = Jinja2Templates(
 # Request Models
 # --------------------------------------------------
 
-class GenerateRequest(BaseModel):
-    text: str = Field(
-        min_length=1,
-        max_length=20000,
-    )
-    title: str = Field(
-        default="Pasted study material",
-        max_length=200,
-    )
-    count: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-    )
+
 
 class GenerateFromMaterialRequest(BaseModel):
     course_id: int = Field(ge=1)
@@ -181,59 +168,10 @@ def study_tools_page(
     )
 
 
-# --------------------------------------------------
-# Generate AI Quiz
-# --------------------------------------------------
-
-@router.post("/generate-quiz")
-def generate_quiz(request: GenerateRequest):
-    try:
-        sources = prepare_sources(
-            request.text,
-            request.title,
-        )
-
-        result = generate_ai_quiz(
-            text=sources[0].text,
-            title=sources[0].title,
-            count=request.count,
-        )
-
-        # Store the complete quiz on the server,
-        # including correct answers and citations.
-        quiz_id = save_quiz(
-            result["questions"]
-        )
-
-        # Only send questions and answer choices
-        # to the browser before submission.
-        return {
-            "mode": "ai",
-            "quiz_id": quiz_id,
-            "questions": public_questions(
-                result["questions"]
-            ),
-        }
-
-    except ValueError as error:
-        raise HTTPException(
-            status_code=422,
-            detail=str(error),
-        )
-
-    except Exception:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Local AI generation is unavailable. "
-                "Make sure Ollama is running and "
-                "the configured model is installed."
-            ),
-        )
 
 
 # --------------------------------------------------
-# Submit and Grade Quiz
+# Generate quiz from uploaded pdf
 # --------------------------------------------------
 
 @router.post("/generate-quiz-from-material")
@@ -329,41 +267,9 @@ def submit_quiz(request: SubmitQuizRequest):
 
 
 # --------------------------------------------------
-# Generate Demonstration Flashcards
+# Generate Flashcards from uploaded pdf
 # --------------------------------------------------
 
-
-@router.post("/generate-flashcards")
-def generate_flashcards(request: GenerateRequest):
-    try:
-        sources = prepare_sources(
-            request.text,
-            request.title,
-        )
-
-        result = generate_ai_flashcards(
-            text=sources[0].text,
-            title=sources[0].title,
-            count=request.count,
-        )
-
-        return result
-
-    except ValueError as error:
-        raise HTTPException(
-            status_code=422,
-            detail=str(error),
-        )
-
-    except Exception:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Local AI flashcard generation is unavailable. "
-                "Check that Ollama is running and "
-                "the configured model is installed."
-            ),
-        )
 
 @router.post("/generate-flashcards-from-material")
 def generate_flashcards_from_material(
