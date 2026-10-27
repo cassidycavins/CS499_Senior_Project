@@ -46,30 +46,28 @@
         </p>
     </div>
 
-    <div class="card shadow-sm mb-4">
-        <div class="card-body">
+    {% if course and materials %}
+    <label for="materialSource" class="form-label">
+        Select an uploaded PDF
+    </label>
 
-            <label for="sourceTitle" class="form-label">
-                Source title
-            </label>
+    <select
+        id="materialSource"
+        class="form-select mb-3">
 
-            <input
-                id="sourceTitle"
-                class="form-control mb-3"
-                maxlength="200"
-                value="Pasted study material">
+        {% for material in materials %}
+            <option value="{{ material.id }}">
+                {{ material.filename }}
+            </option>
+        {% endfor %}
+    </select>
 
-            <label for="studyText" class="form-label">
-                Study material
-            </label>
-
-            <textarea
-                id="studyText"
-                class="form-control mb-3"
-                rows="7"
-                maxlength="20000"
-                placeholder="Paste your study notes here..."
-                required></textarea>
+    {% else %}
+    <div class="alert alert-warning">
+        No PDFs are available. Please upload a PDF
+        to your course before generating study material.
+    </div>
+    {% endif %}
 
             <label for="itemCount" class="form-label">
                 Number of items
@@ -231,32 +229,30 @@ async function generate(type) {
         return;
     }
 
-    const text = document.getElementById("studyText").value;
-    const title = document.getElementById("sourceTitle").value;
-    const count = Number(
-        document.getElementById("itemCount").value
-    );
-
+    const sourceSelect = document.getElementById("materialSource");
+    const count = Number(document.getElementById("itemCount").value);
     const results = document.getElementById("results");
 
     results.replaceChildren();
     currentQuestions = [];
     currentQuizId = null;
 
-    if (!text.trim()) {
-        results.appendChild(
-            makeElement(
-                "div",
-                "Please enter study material.",
-                "alert alert-warning"
-            )
-        );
+    // Require an uploaded PDF before generating study content.
+    if (!sourceSelect || !sourceSelect.value) {
+        showError("Please upload a PDF to your course first.");
         return;
     }
 
+    // Only PDF-based generation endpoints are used.
     const endpoint = type === "quiz"
-        ? "/study-tools/generate-quiz"
-        : "/study-tools/generate-flashcards";
+        ? "/study-tools/generate-quiz-from-material"
+        : "/study-tools/generate-flashcards-from-material";
+
+    const payload = {
+        course_id: {{ course.id if course else 'null' }},
+        material_id: Number(sourceSelect.value),
+        count: count
+    };
 
     setLoading(true);
 
@@ -266,11 +262,7 @@ async function generate(type) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-                text,
-                title,
-                count
-            })
+            body: JSON.stringify(payload)
         });
 
         const data = await response.json();

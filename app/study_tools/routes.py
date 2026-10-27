@@ -1,5 +1,6 @@
 
 from typing import Annotated
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import crud
 from app.database import get_db
+from app.services.pdf_extractor import extract_text_from_pdf
 from .flashcard_generator import generate_ai_flashcards
 
 from .ai_generator import generate_ai_quiz
@@ -46,20 +48,12 @@ templates = Jinja2Templates(
 # Request Models
 # --------------------------------------------------
 
-class GenerateRequest(BaseModel):
-    text: str = Field(
-        min_length=1,
-        max_length=20000,
-    )
-    title: str = Field(
-        default="Pasted study material",
-        max_length=200,
-    )
-    count: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-    )
+
+
+class GenerateFromMaterialRequest(BaseModel):
+    course_id: int = Field(ge=1)
+    material_id: int = Field(ge=1)
+    count: int = Field(default=5, ge=1, le=20)
 
 
 class SubmitQuizRequest(BaseModel):
@@ -67,6 +61,68 @@ class SubmitQuizRequest(BaseModel):
     answers: dict[str, int] = Field(
         default_factory=dict
     )
+
+def get_pdf_material_text(
+    db: Session,
+    course_id: int,
+    material_id: int,
+) -> tuple[str, str]:
+    """Retrieve and extract text from an uploaded course PDF."""
+
+    # Verify the course exists.
+    course = crud.get_course(db, course_id)
+
+    if course is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found.",
+        )
+
+    # Verify the material belongs to the selected course.
+    material = crud.get_study_material(db, material_id)
+
+    if material is None or material.course_id != course_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Study material not found for this course.",
+        )
+
+    # Only read files stored in the application's uploads directory.
+    upload_dir = Path(__file__).resolve().parents[1] / "uploads"
+    file_path = Path(material.file_path).resolve()
+
+    if not file_path.is_relative_to(upload_dir.resolve()):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid study material file path.",
+        )
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Uploaded PDF file not found.",
+        )
+
+    # Extract PDF text and handle unreadable or scanned files.
+    try:
+        extracted_text = extract_text_from_pdf(file_path)
+    except (ValueError, FileNotFoundError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        ) from error
+
+    # Match the maximum input size supported by the AI generators.
+    if len(extracted_text) > 20000:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This PDF contains more than 20,000 characters. "
+                "Please use a shorter PDF for now."
+            ),
+        )
+
+    return extracted_text, material.filename
 
 
 # --------------------------------------------------
@@ -81,6 +137,7 @@ def study_tools_page(
     mode: str = "quiz",
 ):
     course = None
+    materials = []
 
     if course_id is not None:
         course = crud.get_course(db, course_id)
@@ -90,6 +147,9 @@ def study_tools_page(
                 status_code=404,
                 detail="Course not found",
             )
+
+        # Retrieve uploaded PDFs for the selected course.
+        materials = crud.get_study_materials(db, course_id)
 
     if mode not in ("quiz", "flashcards"):
         raise HTTPException(
@@ -103,21 +163,34 @@ def study_tools_page(
         context={
             "course": course,
             "mode": mode,
+            "materials": materials,
         },
     )
 
 
+
+
 # --------------------------------------------------
-# Generate AI Quiz
+# Generate quiz from uploaded pdf
 # --------------------------------------------------
 
-@router.post("/generate-quiz")
-def generate_quiz(request: GenerateRequest):
+@router.post("/generate-quiz-from-material")
+def generate_quiz_from_material(
+    request: GenerateFromMaterialRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Generate an AI quiz using an uploaded course PDF."""
+
+    # Retrieve validated PDF text and its original filename.
+    text, title = get_pdf_material_text(
+        db,
+        request.course_id,
+        request.material_id,
+    )
+
     try:
-        sources = prepare_sources(
-            request.text,
-            request.title,
-        )
+        # Reuse the existing source preparation and AI generator.
+        sources = prepare_sources(text, title)
 
         result = generate_ai_quiz(
             text=sources[0].text,
@@ -125,29 +198,22 @@ def generate_quiz(request: GenerateRequest):
             count=request.count,
         )
 
-        # Store the complete quiz on the server,
-        # including correct answers and citations.
-        quiz_id = save_quiz(
-            result["questions"]
-        )
+        # Store correct answers on the server for secure grading.
+        quiz_id = save_quiz(result["questions"])
 
-        # Only send questions and answer choices
-        # to the browser before submission.
         return {
             "mode": "ai",
             "quiz_id": quiz_id,
-            "questions": public_questions(
-                result["questions"]
-            ),
+            "questions": public_questions(result["questions"]),
         }
 
     except ValueError as error:
         raise HTTPException(
             status_code=422,
             detail=str(error),
-        )
+        ) from error
 
-    except Exception:
+    except Exception as error:
         raise HTTPException(
             status_code=503,
             detail=(
@@ -155,12 +221,7 @@ def generate_quiz(request: GenerateRequest):
                 "Make sure Ollama is running and "
                 "the configured model is installed."
             ),
-        )
-
-
-# --------------------------------------------------
-# Submit and Grade Quiz
-# --------------------------------------------------
+        ) from error
 
 @router.post("/submit-quiz")
 def submit_quiz(request: SubmitQuizRequest):
@@ -206,17 +267,27 @@ def submit_quiz(request: SubmitQuizRequest):
 
 
 # --------------------------------------------------
-# Generate Demonstration Flashcards
+# Generate Flashcards from uploaded pdf
 # --------------------------------------------------
 
 
-@router.post("/generate-flashcards")
-def generate_flashcards(request: GenerateRequest):
+@router.post("/generate-flashcards-from-material")
+def generate_flashcards_from_material(
+    request: GenerateFromMaterialRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Generate AI flashcards from an uploaded course PDF."""
+
+    # Retrieve validated PDF text and filename.
+    text, title = get_pdf_material_text(
+        db,
+        request.course_id,
+        request.material_id,
+    )
+
     try:
-        sources = prepare_sources(
-            request.text,
-            request.title,
-        )
+        # Reuse the existing source preparation and AI generator.
+        sources = prepare_sources(text, title)
 
         result = generate_ai_flashcards(
             text=sources[0].text,
@@ -230,9 +301,9 @@ def generate_flashcards(request: GenerateRequest):
         raise HTTPException(
             status_code=422,
             detail=str(error),
-        )
+        ) from error
 
-    except Exception:
+    except Exception as error:
         raise HTTPException(
             status_code=503,
             detail=(
@@ -240,4 +311,4 @@ def generate_flashcards(request: GenerateRequest):
                 "Check that Ollama is running and "
                 "the configured model is installed."
             ),
-        )
+        ) from error
