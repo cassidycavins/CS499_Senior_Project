@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <title>AI Study Tools - Study Planner</title>
 
@@ -30,85 +29,93 @@
     {% endif %}
 
     <p class="text-muted">
-        Create practice questions and flashcards
-        from your study notes.
+        Create practice questions and flashcards from your study notes.
     </p>
 
     <div class="alert alert-info">
         <strong>AI-Powered Study Tools</strong>
         <p class="mb-0">
-            Practice quizzes are generated using a local AI model
-            based on your provided study material.
-            Questions include supporting source excerpts.
-            Flashcards and quizzes are generated using a local AI model
-            based on your provided study material.
+            Quizzes and flashcards are generated using a local AI model
+            based on your uploaded study material.
             Both include supporting source excerpts.
         </p>
     </div>
 
     {% if course and materials %}
-    <label for="materialSource" class="form-label">
-        Select an uploaded PDF
-    </label>
+        <label for="materialSource" class="form-label">
+            Select an Uploaded PDF
+        </label>
 
-    <select
-        id="materialSource"
-        class="form-select mb-3">
-
-        {% for material in materials %}
-            <option value="{{ material.id }}">
-                {{ material.filename }}
-            </option>
-        {% endfor %}
-    </select>
-
+        <select id="materialSource" class="form-select mb-3">
+            {% for material in materials %}
+                <option value="{{ material.id }}">
+                    {{ material.filename }}
+                </option>
+            {% endfor %}
+        </select>
     {% else %}
-    <div class="alert alert-warning">
-        No PDFs are available. Please upload a PDF
-        to your course before generating study material.
-    </div>
+        <div class="alert alert-warning">
+            No PDFs are available. Please upload a PDF
+            to your course before generating study material.
+        </div>
     {% endif %}
 
-            <label for="itemCount" class="form-label">
-                Number of items
-            </label>
+    <label for="itemCount"
+           id="itemCountLabel"
+           class="form-label">
+        Number of Questions
+    </label>
 
-            <select id="itemCount" class="form-select mb-3">
-                <option value="3">3</option>
-                <option value="5" selected>5</option>
-                <option value="10">10</option>
-            </select>
+    <select id="itemCount" class="form-select mb-3">
+        <option value="3">3</option>
+        <option value="5" selected>5</option>
+        <option value="10">10</option>
+    </select>
 
-            <div class="d-flex flex-wrap gap-2 mt-3">
+    <!-- Optional source verification -->
+    <div class="form-check mb-3">
+        <input
+            class="form-check-input"
+            type="checkbox"
+            id="verifySource">
 
-                <button
-                    id="generateQuizBtn"
-                    type="button"
-                    class="btn btn-primary"
-                    onclick="generate('quiz')">
-                    Generate Quiz
-                </button>
+        <label class="form-check-label" for="verifySource">
+            Verify answers against uploaded material (slower)
+        </label>
 
-                <button
-                    id="generateFlashcardsBtn"
-                    type="button"
-                    class="btn btn-success"
-                    onclick="generate('flashcards')">
-                    Generate Flashcards
-                </button>
-
-            </div>
-
-            {% if mode == "flashcards" %}
-                <p class="text-muted mt-2 mb-0">
-                    Flashcard mode selected.
-                </p>
-            {% endif %}
-
+        <div class="form-text">
+            Additional AI verification is optional.
+            Leave unchecked for faster generation.
         </div>
     </div>
 
-    <!-- Loading Indicator -->
+    <div class="d-flex flex-wrap gap-2 mt-3">
+
+        <button
+            id="generateQuizBtn"
+            type="button"
+            class="btn btn-primary"
+            onclick="generate('quiz')">
+            Generate Quiz
+        </button>
+
+        <button
+            id="generateFlashcardsBtn"
+            type="button"
+            class="btn btn-success"
+            onclick="generate('flashcards')">
+            Generate Flashcards
+        </button>
+
+    </div>
+
+    {% if mode == "flashcards" %}
+        <p class="text-muted mt-2 mb-0">
+            Flashcard mode selected.
+        </p>
+    {% endif %}
+
+    <!-- Loading indicator -->
     <div id="loadingIndicator"
          class="text-center my-4"
          role="status"
@@ -124,17 +131,30 @@
         </p>
     </div>
 
-    <!-- Generated Quiz or Flashcards -->
+    <!-- Generated quiz or flashcards -->
     <div id="results" aria-live="polite"></div>
 
 </div>
 
+<!-- Keep Jinja2 outside JavaScript to avoid editor errors -->
+<input
+    type="hidden"
+    id="course-id"
+    value="{{ course.id if course else '' }}">
+
+<input
+    type="hidden"
+    id="initial-mode"
+    value="{{ mode }}">
+
 <script>
+
 let currentQuestions = [];
 let currentQuizId = null;
 let isBusy = false;
 
 
+// Create elements without inserting untrusted HTML.
 function makeElement(tag, text, className = "") {
     const element = document.createElement(tag);
     element.textContent = text;
@@ -143,7 +163,7 @@ function makeElement(tag, text, className = "") {
 }
 
 
-
+// Display supporting source citations.
 function addCitation(parent, citation) {
     if (!citation) {
         return;
@@ -196,7 +216,7 @@ function addCitation(parent, citation) {
 }
 
 
-
+// Display generation or grading errors.
 function showError(message) {
     const results = document.getElementById("results");
 
@@ -210,6 +230,7 @@ function showError(message) {
 }
 
 
+// Prevent multiple generation requests at once.
 function setLoading(loading) {
     isBusy = loading;
 
@@ -224,34 +245,50 @@ function setLoading(loading) {
 }
 
 
+// Update the count label based on the selected tool.
+function updateCountLabel(type) {
+    document.getElementById("itemCountLabel").textContent =
+        type === "flashcards"
+            ? "Number of Flashcards"
+            : "Number of Questions";
+}
+
+
+// Generate a quiz or flashcards from the selected PDF.
 async function generate(type) {
     if (isBusy) {
         return;
     }
 
+    updateCountLabel(type);
+
     const sourceSelect = document.getElementById("materialSource");
     const count = Number(document.getElementById("itemCount").value);
+    const verify = document.getElementById("verifySource").checked;
     const results = document.getElementById("results");
 
     results.replaceChildren();
     currentQuestions = [];
     currentQuizId = null;
 
-    // Require an uploaded PDF before generating study content.
+    // Require an uploaded PDF.
     if (!sourceSelect || !sourceSelect.value) {
         showError("Please upload a PDF to your course first.");
         return;
     }
 
-    // Only PDF-based generation endpoints are used.
     const endpoint = type === "quiz"
         ? "/study-tools/generate-quiz-from-material"
         : "/study-tools/generate-flashcards-from-material";
 
+    // Send the verification preference to FastAPI.
     const payload = {
-        course_id: {{ course.id if course else 'null' }},
+        course_id: Number(
+            document.getElementById("course-id").value
+        ),
         material_id: Number(sourceSelect.value),
-        count: count
+        count: count,
+        verify: verify
     };
 
     setLoading(true);
@@ -292,7 +329,9 @@ async function generate(type) {
         }
 
     } catch (error) {
-        showError(error.message || "An unexpected error occurred.");
+        showError(
+            error.message || "An unexpected error occurred."
+        );
 
     } finally {
         setLoading(false);
@@ -300,6 +339,7 @@ async function generate(type) {
 }
 
 
+// Display generated multiple-choice questions.
 function renderQuiz(questions) {
     currentQuestions = questions;
 
@@ -364,13 +404,13 @@ function renderQuiz(questions) {
 
     button.id = "submitQuizBtn";
     button.type = "button";
-
     button.addEventListener("click", submitQuiz);
 
     results.appendChild(button);
 }
 
 
+// Submit quiz answers for server-side grading.
 async function submitQuiz() {
     if (isBusy || !currentQuizId) {
         return;
@@ -424,7 +464,7 @@ async function submitQuiz() {
 
         displayQuizResults(data);
 
-        // Prevent repeated submission from the UI.
+        // Prevent repeated submissions.
         currentQuizId = null;
         submitButton.remove();
 
@@ -445,10 +485,10 @@ async function submitQuiz() {
 }
 
 
+// Display quiz score, explanations, and citations.
 function displayQuizResults(data) {
     const results = document.getElementById("results");
 
-    // Remove previous grading feedback if present.
     results.querySelectorAll(
         ".quiz-feedback, .quiz-score"
     ).forEach(element => element.remove());
@@ -503,18 +543,29 @@ function displayQuizResults(data) {
         );
 
         addCitation(feedback, result.citation);
-
         results.appendChild(feedback);
     });
 }
 
 
+// Display flashcards with hidden answers.
 function renderFlashcards(cards) {
     const results = document.getElementById("results");
 
     results.appendChild(
         makeElement("h2", "Flashcards", "mb-3")
     );
+
+    if (cards.length === 0) {
+        results.appendChild(
+            makeElement(
+                "p",
+                "No flashcards were generated.",
+                "alert alert-warning"
+            )
+        );
+        return;
+    }
 
     cards.forEach(card => {
         const container = document.createElement("div");
@@ -557,6 +608,13 @@ function renderFlashcards(cards) {
         results.appendChild(container);
     });
 }
+
+
+// Set the initial label based on the page mode.
+updateCountLabel(
+    document.getElementById("initial-mode").value
+);
+
 </script>
 
 </body>
