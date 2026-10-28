@@ -25,4 +25,11 @@ Thumbs.db
 
 # Ignore uploaded study materials
 app/uploads/*
-!app/uploads/.gitkeep
+!app/uploads/.
+
+# Google Calendar authentication
+credentials.json
+token.json
+.env
+.env.*
+!.env.example

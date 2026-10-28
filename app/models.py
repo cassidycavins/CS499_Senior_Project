@@ -57,7 +57,7 @@ class StudyMaterial(Base):
         back_populates="materials"
     )
 
-# Step 15: Quiz performance tracking
+# Quiz performance tracking
 class QuizAttempt(Base):
     __tablename__ = "quiz_attempts"
 
@@ -130,4 +130,108 @@ class TopicPerformance(Base):
 
     quiz_attempt: Mapped["QuizAttempt"] = relationship(
         back_populates="topics"
+    )
+
+# Calendar events
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    course_id: Mapped[int | None] = mapped_column(
+        ForeignKey("courses.id"),
+        nullable=True
+    )
+
+    title: Mapped[str] = mapped_column(
+        String(150),
+        nullable=False
+    )
+
+    event_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False
+    )
+
+    start_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    end_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    description: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True
+    )
+
+
+# Store student availability for study planning.
+class AvailabilitySlot(Base):
+    __tablename__ = "availability_slots"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    start_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    end_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+
+# Store recommended and approved study sessions.
+class StudySession(Base):
+    __tablename__ = "study_sessions"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    course_id: Mapped[int] = mapped_column(
+        ForeignKey("courses.id"),
+        nullable=False
+    )
+
+    topic: Mapped[str] = mapped_column(
+        String(150),
+        nullable=False
+    )
+
+    start_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    end_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(30),
+        default="recommended",
+        nullable=False
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
     )

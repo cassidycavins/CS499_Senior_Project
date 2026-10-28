@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from app.google_calendar.service import get_upcoming_events
 from typing import Annotated
 from pathlib import Path
 from uuid import uuid4
@@ -27,6 +30,12 @@ from app.routes.performance import router as performance_router
 # AI quizzes and flashcards
 from app.study_tools.routes import router as study_tools_router
 
+from app.google_calendar.routes import router as google_calendar_router
+from app.google_calendar.service import get_busy_periods
+from app.services.study_scheduler import find_available_slots
+from app.services.study_recommendation_service import generate_study_recommendations
+from app.performance_crud import get_topic_performance
+
 # PDF text extraction
 from app.services.pdf_extractor import extract_text_from_pdf
 
@@ -34,9 +43,33 @@ from app.services.pdf_extractor import extract_text_from_pdf
 # Initialize FastAPI and register feature routes.
 app = FastAPI()
 
+import os
+
+from dotenv import load_dotenv
+from starlette.middleware.sessions import SessionMiddleware
+
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from the project root.
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
+SESSION_SECRET = os.getenv("SESSION_SECRET")
+
+if not SESSION_SECRET:
+    raise RuntimeError("SESSION_SECRET must be configured")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    same_site="lax",
+    https_only=False,  # Local HTTP development only
+)
+
 app.include_router(performance_router)
 app.include_router(study_tools_router)
-
+app.include_router(google_calendar_router)
 
 # Configure uploaded study materials.
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
@@ -66,11 +99,104 @@ def dashboard(
 
     courses = crud.get_courses(db)
 
+    # Generate study recommendations using quiz performance and availability.
+    study_recommendations = []
+    recommendation_error = None
+
+    try:
+        # Retrieve calendar availability.
+        busy_periods = get_busy_periods(days=7)
+        available_slots = find_available_slots(busy_periods, days=7)
+
+        # Collect topic performance across all courses.
+        topic_records = []
+
+        for course in courses:
+            records = get_topic_performance(db, course.id)
+            topic_records.extend(records)
+
+        # Generate recommendations for weak topics.
+        study_recommendations = generate_study_recommendations(
+            topic_records,
+            available_slots,
+        )
+
+        # Format recommended session times for the dashboard.
+        for recommendation in study_recommendations:
+
+            start = datetime.fromisoformat(recommendation["start"])
+            end = datetime.fromisoformat(recommendation["end"])
+
+            recommendation["display_start"] = start.strftime(
+                "%b %d, %Y at %I:%M %p"
+            )
+
+            recommendation["display_end"] = end.strftime(
+                "%b %d, %Y at %I:%M %p"
+            )
+
+    except FileNotFoundError:
+        # Calendar has not been connected.
+        pass
+
+    except Exception:
+        # Keep the dashboard available if recommendations fail.
+        recommendation_error = "Unable to generate study recommendations."
+
+
+    # Retrieve upcoming Google Calendar events.
+    calendar_connected = False
+    calendar_events = []
+    calendar_error = None
+
+    try:
+        calendar_events = get_upcoming_events(days=7)
+        calendar_connected = True
+    except FileNotFoundError:
+    # Google Calendar has not been connected.
+        pass
+    except Exception:
+    # Keep the dashboard available if Google Calendar fails.
+        calendar_error = "Unable to load Google Calendar events."
+
+    # Convert event times to the user's local timezone.
+    local_timezone = ZoneInfo("America/Chicago")
+
+    formatted_events = []
+
+    for event in calendar_events:
+        start = event.get("start", {})
+
+        if "dateTime" in start:
+            event_time = datetime.fromisoformat(
+                start["dateTime"].replace("Z", "+00:00")
+            )  
+
+            local_time = event_time.astimezone(local_timezone)
+
+            display_time = local_time.strftime("%b %d, %Y at %I:%M %p")
+
+        else:
+            # All-day events have a date instead of dateTime.
+            event_date = datetime.fromisoformat(start["date"])
+            display_time = event_date.strftime("%b %d, %Y (All Day)")
+
+        formatted_events.append({
+            "summary": event.get("summary", "Untitled Event"),
+            "calendar": event.get("calendar", "Google Calendar"),
+            "display_time": display_time,
+        })
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
         context={
             "courses": courses,
+            "calendar_connected": calendar_connected,
+            "calendar_events": formatted_events,
+            "calendar_error": calendar_error,
+            "study_recommendations": study_recommendations,
+            "recommendation_error": recommendation_error,
         },
     )
 
