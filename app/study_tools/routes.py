@@ -54,6 +54,7 @@ class GenerateFromMaterialRequest(BaseModel):
     course_id: int = Field(ge=1)
     material_id: int = Field(ge=1)
     count: int = Field(default=5, ge=1, le=20)
+    verify: bool = False
 
 
 class SubmitQuizRequest(BaseModel):
@@ -196,6 +197,7 @@ def generate_quiz_from_material(
             text=sources[0].text,
             title=sources[0].title,
             count=request.count,
+            verify=request.verify,
         )
 
         # Store correct answers on the server for secure grading.
@@ -293,6 +295,7 @@ def generate_flashcards_from_material(
             text=sources[0].text,
             title=sources[0].title,
             count=request.count,
+            verify=request.verify,
         )
 
         return result

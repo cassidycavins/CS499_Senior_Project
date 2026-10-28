@@ -1,24 +1,10 @@
-
 from pathlib import Path
 
 import pymupdf
 
 
 def extract_text_from_pdf(file_path: str | Path) -> str:
-    """
-    Extract readable text from a PDF document.
-
-    Args:
-        file_path: Location of the PDF file.
-
-    Returns:
-        Extracted text as a string.
-
-    Raises:
-        FileNotFoundError: If the PDF does not exist.
-        ValueError: If the PDF cannot be read or has no
-                    extractable text.
-    """
+    """Extract readable text from a PDF document."""
 
     pdf_path = Path(file_path)
 
