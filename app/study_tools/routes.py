@@ -16,6 +16,8 @@ from app import crud
 from app.database import get_db
 from app.services.pdf_extractor import extract_text_from_pdf
 from .flashcard_generator import generate_ai_flashcards
+from app.performance_crud import save_quiz_attempt
+from app.study_tools.quiz_store import get_quiz_course_id
 
 from .ai_generator import generate_ai_quiz
 
@@ -27,6 +29,9 @@ from .quiz_store import (
     get_quiz,
     public_questions,
     grade_quiz,
+    begin_quiz_submission,
+    complete_quiz_submission,
+    cancel_quiz_submission
 )
 
 
@@ -201,7 +206,10 @@ def generate_quiz_from_material(
         )
 
         # Store correct answers on the server for secure grading.
-        quiz_id = save_quiz(result["questions"])
+        quiz_id = save_quiz(
+            result["questions"],
+            course_id=request.course_id,
+        )
 
         return {
             "mode": "ai",
@@ -226,12 +234,14 @@ def generate_quiz_from_material(
         ) from error
 
 @router.post("/submit-quiz")
-def submit_quiz(request: SubmitQuizRequest):
-    questions = get_quiz(
-        request.quiz_id
-    )
+def submit_quiz(
+    request: SubmitQuizRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    questions = get_quiz(request.quiz_id)
+    course_id = get_quiz_course_id(request.quiz_id)
 
-    if questions is None:
+    if questions is None or course_id is None:
         raise HTTPException(
             status_code=404,
             detail=(
@@ -261,11 +271,56 @@ def submit_quiz(request: SubmitQuizRequest):
                 detail="Invalid answer selection.",
             )
 
-    # Calculate score on the backend.
-    return grade_quiz(
+    # Grade the submitted quiz.
+    graded = grade_quiz(
         questions,
         request.answers,
     )
+
+    # Organize question results by topic.
+    topic_results = {}
+
+    for question, result in zip(
+        questions,
+        graded["results"],
+    ):
+        topic = question.get("topic") or "General"
+
+        if topic not in topic_results:
+            topic_results[topic] = {
+                "correct": 0,
+                "total": 0,
+            }
+
+        topic_results[topic]["total"] += 1
+
+        if result["is_correct"]:
+            topic_results[topic]["correct"] += 1
+
+    # Save quiz and topic performance to SQLite.
+        # Reserve the quiz to prevent duplicate submissions.
+    if not begin_quiz_submission(request.quiz_id):
+        raise HTTPException(
+            status_code=409,
+            detail="This quiz has already been submitted or is processing.",
+        )
+
+    try:
+        # Save quiz and topic performance to SQLite.
+        save_quiz_attempt(
+            db=db,
+            course_id=course_id,
+            topic_results=topic_results,
+        )
+    except Exception:
+        db.rollback()
+        cancel_quiz_submission(request.quiz_id)
+        raise
+
+    # Mark the quiz completed only after saving succeeds.
+    complete_quiz_submission(request.quiz_id)
+
+    return graded
 
 
 # --------------------------------------------------

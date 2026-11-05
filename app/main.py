@@ -170,7 +170,7 @@ def dashboard(
         if "dateTime" in start:
             event_time = datetime.fromisoformat(
                 start["dateTime"].replace("Z", "+00:00")
-            )  
+            )
 
             local_time = event_time.astimezone(local_timezone)
 

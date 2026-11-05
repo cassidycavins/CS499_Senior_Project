@@ -12,7 +12,7 @@ _lock = Lock()
 QUIZ_EXPIRATION_MINUTES = 60
 
 
-def save_quiz(questions: list[dict]) -> str:
+def save_quiz(questions: list[dict], course_id: int) -> str:
     quiz_id = str(uuid4())
 
     expires_at = (
@@ -35,7 +35,9 @@ def save_quiz(questions: list[dict]) -> str:
 
         _quizzes[quiz_id] = {
             "questions": questions,
+            "course_id": course_id,
             "expires_at": expires_at,
+            "submission_state": "pending",
         }
 
     return quiz_id
@@ -54,6 +56,59 @@ def get_quiz(quiz_id: str):
 
         return quiz["questions"]
 
+def get_quiz_course_id(quiz_id: str) -> int | None:
+    """Return the course ID for a valid, unexpired quiz."""
+
+    with _lock:
+        quiz = _quizzes.get(quiz_id)
+
+        if quiz is None:
+            return None
+
+        if quiz["expires_at"] <= datetime.now(timezone.utc):
+            del _quizzes[quiz_id]
+            return None
+
+        return quiz.get("course_id")
+
+def begin_quiz_submission(quiz_id: str) -> bool:
+    """Reserve a quiz for one submission."""
+
+    with _lock:
+        quiz = _quizzes.get(quiz_id)
+
+        if quiz is None:
+            return False
+
+        if quiz["expires_at"] <= datetime.now(timezone.utc):
+            del _quizzes[quiz_id]
+            return False
+
+        if quiz.get("submission_state", "pending") != "pending":
+            return False
+
+        quiz["submission_state"] = "processing"
+        return True
+
+
+def complete_quiz_submission(quiz_id: str) -> None:
+    """Mark a successfully saved quiz as completed."""
+
+    with _lock:
+        quiz = _quizzes.get(quiz_id)
+
+        if quiz is not None:
+            quiz["submission_state"] = "completed"
+
+
+def cancel_quiz_submission(quiz_id: str) -> None:
+    """Allow another attempt if saving performance fails."""
+
+    with _lock:
+        quiz = _quizzes.get(quiz_id)
+
+        if quiz is not None and quiz.get("submission_state") == "processing":
+            quiz["submission_state"] = "pending"
 
 def public_questions(questions: list[dict]) -> list[dict]:
     # Only send the information needed to take the quiz.
