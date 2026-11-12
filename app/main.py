@@ -15,6 +15,8 @@ from fastapi import (
     File,
 )
 
+from app.routes.auth import router as auth_router
+
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, FileResponse
@@ -70,6 +72,7 @@ app.add_middleware(
 app.include_router(performance_router)
 app.include_router(study_tools_router)
 app.include_router(google_calendar_router)
+app.include_router(auth_router)
 
 # Configure uploaded study materials.
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
