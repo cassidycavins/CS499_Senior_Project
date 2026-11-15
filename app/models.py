@@ -1,5 +1,5 @@
 
-from sqlalchemy import Integer, String, ForeignKey, DateTime
+from sqlalchemy import Integer, String, Float, ForeignKey, DateTime
 from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -132,6 +132,11 @@ class TopicPerformance(Base):
         back_populates="topics"
     )
 
+    topic_score: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True
+    )
+
 # Calendar events
 class CalendarEvent(Base):
     __tablename__ = "calendar_events"
@@ -196,6 +201,7 @@ class AvailabilitySlot(Base):
 
 # Store recommended and approved study sessions.
 class StudySession(Base):
+    """Track recommended study sessions and approval decisions."""
     __tablename__ = "study_sessions"
 
     id: Mapped[int] = mapped_column(
@@ -213,6 +219,12 @@ class StudySession(Base):
         String(150),
         nullable=False
     )
+
+    # Store the performance score associated with the recommendation.
+    topic_score: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True
+)
 
     start_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -234,4 +246,9 @@ class StudySession(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False
+    )
+
+    google_event_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
     )

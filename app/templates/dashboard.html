@@ -116,19 +116,9 @@ Dashboard - AI Study Planner
 
                 {% for recommendation in study_recommendations %}
 
-                    <div class="list-group-item">
+                    <div class="mb-4">
 
-                        <div class="d-flex justify-content-between align-items-center">
-
-                            <h5 class="mb-1">
-                                {{ recommendation.topic }}
-                            </h5>
-
-                            <span class="badge bg-warning text-dark">
-                                {{ recommendation.status | capitalize }}
-                            </span>
-
-                        </div>
+                        <h5>{{ recommendation.topic }}</h5>
 
                         <p class="mb-1">
                             <strong>Topic Score:</strong>
@@ -136,14 +126,29 @@ Dashboard - AI Study Planner
                         </p>
 
                         <p class="mb-1">
-                            <strong>Start:</strong>
+                            <strong>Recommended Time:</strong>
                             {{ recommendation.display_start }}
-                        </p>
-
-                        <p class="mb-1">
-                            <strong>End:</strong>
+                            -
                             {{ recommendation.display_end }}
                         </p>
+
+                        <div class="d-flex gap-2 mt-3">
+
+                            <form method="post"
+                                  action="/study-sessions/{{ recommendation.id }}/approve">
+                                <button type="submit" class="btn btn-success btn-sm">
+                                    Approve
+                                </button>
+                            </form>
+
+                            <form method="post"
+                                  action="/study-sessions/{{ recommendation.id }}/reject">
+                                <button type="submit" class="btn btn-outline-danger btn-sm">
+                                    Reject
+                                </button>
+                            </form>
+
+                        </div>
 
                     </div>
 
