@@ -1,79 +1,52 @@
-import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+import base64
+import hashlib
 
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from sqlalchemy.orm import Session
+
+from app.google_calendar.credential_storage import get_user_credentials, save_user_credentials
+from app.google_calendar.oauth import credentials_from_dict, credentials_to_dict
 
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-TOKEN_FILE = BASE_DIR / "token.json"
+class CalendarNotConnected(RuntimeError):
+    """The student has not connected a usable Google Calendar account."""
 
 
-def get_calendar_service():
-    """Create an authenticated Google Calendar API service."""
+def get_calendar_service(db: Session, user_id: int):
+    """Create a Calendar client using only this student's encrypted tokens."""
+    token_data = get_user_credentials(db, user_id)
+    if token_data is None:
+        raise CalendarNotConnected("Connect Google Calendar first.")
 
-    if not TOKEN_FILE.exists():
-        raise RuntimeError("Google Calendar is not connected.")
-
-    # Load saved OAuth credentials.
-    token_data = json.loads(
-        TOKEN_FILE.read_text(encoding="utf-8")
-    )
-
-    credentials = Credentials.from_authorized_user_info(token_data)
-
-    # Refresh expired credentials when possible.
+    credentials = credentials_from_dict(token_data)
     if not credentials.valid:
-        if credentials.expired and credentials.refresh_token:
+        if not credentials.refresh_token:
+            raise CalendarNotConnected("Google authorization expired. Reconnect your calendar.")
+        try:
             credentials.refresh(Request())
+        except Exception as exc:
+            raise CalendarNotConnected("Google authorization expired. Reconnect your calendar.") from exc
+        save_user_credentials(db, user_id, credentials_to_dict(credentials))
 
-            # Save refreshed credentials for future requests.
-            TOKEN_FILE.write_text(
-                credentials.to_json(),
-                encoding="utf-8",
-            )
-        else:
-            raise RuntimeError(
-                "Google authentication expired. Please reconnect."
-            )
-
-    return build(
-        "calendar",
-        "v3",
-        credentials=credentials,
-        cache_discovery=False,
-    )
+    return build("calendar", "v3", credentials=credentials, cache_discovery=False)
 
 
-def get_upcoming_events(days=7):
-    """Retrieve upcoming events from accessible Google Calendars."""
-
-    service = get_calendar_service()
-
+def get_upcoming_events(db: Session, user_id: int, days: int = 7):
+    """Retrieve upcoming events from this student's accessible calendars."""
+    service = get_calendar_service(db, user_id)
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=days)
-
     events = []
-
-    # Retrieve calendars accessible to the user.
-    calendar_response = service.calendarList().list().execute()
-    calendars = calendar_response.get("items", [])
-
+    calendars = service.calendarList().list().execute().get("items", [])
     for calendar in calendars:
-        calendar_id = calendar["id"]
-
-        # Retrieve events from each calendar.
         response = service.events().list(
-            calendarId=calendar_id,
-            timeMin=now.isoformat(),
-            timeMax=end.isoformat(),
-            singleEvents=True,
-            orderBy="startTime",
-            maxResults=100,
+            calendarId=calendar["id"], timeMin=now.isoformat(),
+            timeMax=end.isoformat(), singleEvents=True,
+            orderBy="startTime", maxResults=100,
         ).execute()
-
         for event in response.get("items", []):
             events.append({
                 "id": event.get("id"),
@@ -82,67 +55,56 @@ def get_upcoming_events(days=7):
                 "start": event.get("start", {}),
                 "end": event.get("end", {}),
             })
-
-    # Sort events by their start date.
-    events.sort(
-        key=lambda event: (
-            event["start"].get("dateTime")
-            or event["start"].get("date", "")
-        )
-    )
-
+    events.sort(key=lambda event: event["start"].get("dateTime") or event["start"].get("date", ""))
     return events
 
-def get_busy_periods(days: int = 7):
-    """Retrieve busy periods from connected Google Calendars."""
 
-    service = get_calendar_service()
-
-    # Define the availability search window.
+def get_busy_periods(db: Session, user_id: int, days: int = 7):
+    """Retrieve busy periods from this student's accessible calendars."""
+    service = get_calendar_service(db, user_id)
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=days)
-
-    # Retrieve calendars the user can access.
-    calendars = service.calendarList().list().execute()
-
-    calendar_ids = [
-        calendar["id"]
-        for calendar in calendars.get("items", [])
-    ]
-
+    calendar_ids = [item["id"] for item in service.calendarList().list().execute().get("items", [])]
     if not calendar_ids:
         return []
-
-    # Request busy periods from connected calendars.
-    response = service.freebusy().query(
-        body={
-            "timeMin": now.isoformat(),
-            "timeMax": end.isoformat(),
-            "items": [
-                {"id": calendar_id}
-                for calendar_id in calendar_ids
-            ],
-        }
-    ).execute()
-
-    busy_periods = []
-
-    # Combine busy periods from each calendar.
-    for calendar_data in response.get("calendars", {}).values():
-
-        # Skip calendars that do not provide availability.
-        if calendar_data.get("errors"):
+    response = service.freebusy().query(body={
+        "timeMin": now.isoformat(), "timeMax": end.isoformat(),
+        "items": [{"id": calendar_id} for calendar_id in calendar_ids],
+    }).execute()
+    busy = []
+    for data in response.get("calendars", {}).values():
+        if data.get("errors"):
             continue
-
-        # Collect busy periods from accessible calendars.
-        for period in calendar_data.get("busy", []):
-            busy_periods.append({
-                "start": period["start"],
-                "end": period["end"],
-            })
+        busy.extend({"start": item["start"], "end": item["end"]} for item in data.get("busy", []))
+    busy.sort(key=lambda item: item["start"])
+    return busy
 
 
-    # Sort busy periods chronologically.
-    busy_periods.sort(key=lambda period: period["start"])
-
-    return busy_periods
+def create_study_event(db: Session, user_id: int, study_session):
+    """Insert a study session into the student's primary calendar, retry-safe."""
+    service = get_calendar_service(db, user_id)
+    # A stable event ID prevents duplicates if a request is retried after insertion.
+    digest = hashlib.sha256(f"study-planner:{user_id}:{study_session.id}".encode()).digest()
+    event_id = "srd" + base64.b32hexencode(digest).decode("ascii").lower().rstrip("=")[:40]
+    start = study_session.start_time
+    end = study_session.end_time
+    if start.tzinfo is None:
+        # The scheduler uses America/Chicago local wall-clock times.
+        from zoneinfo import ZoneInfo
+        start = start.replace(tzinfo=ZoneInfo("America/Chicago"))
+        end = end.replace(tzinfo=ZoneInfo("America/Chicago"))
+    body = {
+        "id": event_id,
+        "summary": f"Study: {study_session.topic}",
+        "description": "AI Study Planner approved study session",
+        "start": {"dateTime": start.isoformat()},
+        "end": {"dateTime": end.isoformat()},
+    }
+    try:
+        result = service.events().insert(calendarId="primary", body=body).execute()
+    except HttpError as exc:
+        if exc.resp.status != 409:
+            raise
+        # A previous attempt already inserted this same event.
+        result = service.events().get(calendarId="primary", eventId=event_id).execute()
+    return result["id"]

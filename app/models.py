@@ -15,6 +15,12 @@ class Course(Base):
         index=True
     )
 
+    # Identify the student who owns this course.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True
+    )
+
     name: Mapped[str] = mapped_column(
         String(150),
         nullable=False
@@ -215,6 +221,12 @@ class StudySession(Base):
         nullable=False
     )
 
+    # Identify the student who owns this study session.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True
+    )
+
     topic: Mapped[str] = mapped_column(
         String(150),
         nullable=False
@@ -284,5 +296,36 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+class GoogleCalendarConnection(Base):
+    """Store encrypted Google Calendar credentials for each student."""
+
+    __tablename__ = "google_calendar_connections"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    # Each student can have one Google Calendar connection.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False
+    )
+
+    # OAuth credentials will be encrypted before storage.
+    encrypted_credentials: Mapped[str] = mapped_column(
+        String,
+        nullable=False
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False
     )
