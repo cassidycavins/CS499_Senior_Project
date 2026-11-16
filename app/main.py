@@ -21,9 +21,11 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, FileResponse
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models import StudySession
 from app import crud
 
 # Quiz performance tracking
@@ -36,6 +38,7 @@ from app.google_calendar.routes import router as google_calendar_router
 from app.google_calendar.service import get_busy_periods
 from app.services.study_scheduler import find_available_slots
 from app.services.study_recommendation_service import generate_study_recommendations
+from app.services.study_session_service import save_study_recommendations, update_study_session_status
 from app.performance_crud import get_topic_performance
 
 # PDF text extraction
@@ -111,18 +114,72 @@ def dashboard(
         busy_periods = get_busy_periods(days=7)
         available_slots = find_available_slots(busy_periods, days=7)
 
-        # Collect topic performance across all courses.
+        # Collect recommendations while preserving their course IDs.
         topic_records = []
 
         for course in courses:
             records = get_topic_performance(db, course.id)
-            topic_records.extend(records)
 
-        # Generate recommendations for weak topics.
-        study_recommendations = generate_study_recommendations(
-            topic_records,
-            available_slots,
-        )
+            for record in records:
+                topic_records.append({
+                    "course_id": course.id,
+                    "record": record,
+                })
+
+        # Generate recommendations for each course.
+        used_times = set()
+
+        for course in courses:
+            course_records = [
+                item["record"]
+                for item in topic_records
+                if item["course_id"] == course.id
+            ]
+
+            course_recommendations = generate_study_recommendations(
+                course_records,
+                available_slots,
+            )
+
+            # Save recommendations before displaying them.
+            save_study_recommendations(db, study_recommendations)
+
+
+            # Retrieve saved recommendations awaiting student approval.
+            pending_sessions = db.scalars(
+                select(StudySession)
+                .where(StudySession.status == "recommended")
+                .order_by(StudySession.start_time)
+            ).all()
+
+            # Display saved sessions with their database IDs.
+            study_recommendations = []
+
+            for session in pending_sessions:
+                study_recommendations.append({
+                    "id": session.id,
+                    "course_id": session.course_id,
+                    "topic": session.topic,
+                    "score": session.topic_score,
+                    "start": session.start_time.isoformat(),
+                    "end": session.end_time.isoformat(),
+                    "status": session.status,
+                })
+
+
+            for recommendation in course_recommendations:
+                # Avoid assigning the same time to multiple courses.
+                time_key = (
+                    recommendation["start"],
+                    recommendation["end"],
+                )
+
+                if time_key in used_times:
+                    continue
+
+                recommendation["course_id"] = course.id
+                study_recommendations.append(recommendation)
+                used_times.add(time_key)
 
         # Format recommended session times for the dashboard.
         for recommendation in study_recommendations:
@@ -142,10 +199,9 @@ def dashboard(
         # Calendar has not been connected.
         pass
 
-    except Exception:
-        # Keep the dashboard available if recommendations fail.
+    except Exception as error:
+        print(f"[Study Recommendations Error] {error}")
         recommendation_error = "Unable to generate study recommendations."
-
 
     # Retrieve upcoming Google Calendar events.
     calendar_connected = False
@@ -203,6 +259,44 @@ def dashboard(
         },
     )
 
+@app.post("/study-sessions/{session_id}/approve")
+def approve_study_session(
+    session_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Approve a recommended study session."""
+
+    try:
+        session = update_study_session_status(
+            db, session_id, "approved"
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="Study session not found")
+
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/study-sessions/{session_id}/reject")
+def reject_study_session(
+    session_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Reject a recommended study session."""
+
+    try:
+        session = update_study_session_status(
+            db, session_id, "rejected"
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="Study session not found")
+
+    return RedirectResponse(url="/", status_code=303)
 
 @app.get("/courses/add")
 def add_course_form(request: Request):
