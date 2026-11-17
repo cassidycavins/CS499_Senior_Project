@@ -16,16 +16,19 @@ from app.services.performance_service import (
     calculate_quiz_score,
     classify_performance
 )
+from typing import Annotated
+from app.models import User
+from app.services.auth_dependencies import require_user
 
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 
-def get_course_or_404(db, course_id):
-    """Retrieve a course or return a 404 error."""
+def get_course_or_404(db: Session, course_id: int, user_id: int):
+    """Retrieve a course only if the student owns it."""
 
-    course = crud.get_course(db, course_id)
+    course = crud.get_course(db, course_id, user_id)
 
     if course is None:
         raise HTTPException(
@@ -40,11 +43,13 @@ def get_course_or_404(db, course_id):
 def performance_dashboard(
     request: Request,
     course_id: int,
-    db: Session = Depends(get_db)
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Display quiz statistics and knowledge gaps for a course."""
 
-    course = get_course_or_404(db, course_id)
+    # Verify ownership before retrieving performance records.
+    course = get_course_or_404(db, course_id, current_user.id)
     attempts = get_quiz_history(db, course_id)
     topic_records = get_topic_performance(db, course_id)
 
@@ -104,11 +109,13 @@ def performance_dashboard(
 def quiz_history(
     request: Request,
     course_id: int,
-    db: Session = Depends(get_db)
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Display previous quiz attempts for a course."""
 
-    course = get_course_or_404(db, course_id)
+    # Verify ownership before displaying quiz attempts.
+    course = get_course_or_404(db, course_id, current_user.id)
     attempts = get_quiz_history(db, course_id)
 
     return templates.TemplateResponse(

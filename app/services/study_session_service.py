@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import StudySession
+from app.models import Course, StudySession
 
 
 def save_study_recommendations(
@@ -53,27 +53,38 @@ def save_study_recommendations(
     return saved_sessions
 
 
+
 def update_study_session_status(
     db: Session,
     session_id: int,
     new_status: str,
+    user_id: int,
 ) -> StudySession | None:
-    """Approve or reject an existing study recommendation."""
+    """Update a study session only if the student owns it."""
 
     if new_status not in {"approved", "rejected"}:
         raise ValueError("Invalid study session status.")
 
-    session = db.get(StudySession, session_id)
+    # Find the session through a course owned by the student.
+    statement = (
+        select(StudySession)
+        .join(Course, StudySession.course_id == Course.id)
+        .where(
+            StudySession.id == session_id,
+            Course.user_id == user_id,
+        )
+    )
+
+    session = db.scalar(statement)
 
     if session is None:
         return None
 
-    # Only recommendations awaiting a decision can be updated.
+    # Prevent changes to sessions already reviewed.
     if session.status != "recommended":
         raise ValueError("This session has already been reviewed.")
 
     session.status = new_status
-
     db.commit()
     db.refresh(session)
 

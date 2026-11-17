@@ -5,26 +5,44 @@ from sqlalchemy.orm import Session
 from app.models import Course, StudyMaterial
 
 
-# Retrieve all courses
-def get_courses(db: Session):
-    statement = select(Course).order_by(Course.id)
+# Retrieve courses belonging to the logged-in student.
+def get_courses(db: Session, user_id: int):
+    statement = (
+        select(Course)
+        .where(Course.user_id == user_id)
+        .order_by(Course.id)
+    )
     return db.scalars(statement).all()
 
 
-# Retrieve a single course by ID
-def get_course(db: Session, course_id: int):
-    return db.get(Course, course_id)
+# Retrieve a course only if the student owns it.
+def get_course(db: Session, course_id: int, user_id: int):
+    statement = select(Course).where(
+        Course.id == course_id,
+        Course.user_id == user_id
+    )
+    return db.scalar(statement)
 
 
-# Create and save a new course
-def create_course(db: Session, name: str, code: str):
-    course = Course(name=name, code=code)
+# Create a course for the logged-in student.
+def create_course(
+    db: Session,
+    name: str,
+    code: str,
+    user_id: int
+):
+    course = Course(
+        name=name,
+        code=code,
+        user_id=user_id
+    )
 
     db.add(course)
     db.commit()
     db.refresh(course)
 
     return course
+
 
 
 # Create and save an uploaded study material

@@ -15,6 +15,17 @@ class Course(Base):
         index=True
     )
 
+    # Identify the student who owns this course.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True
+    )
+
+    user: Mapped["User"] = relationship(
+        back_populates="courses"
+    )
+
     name: Mapped[str] = mapped_column(
         String(150),
         nullable=False
@@ -285,4 +296,9 @@ class User(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False
+    )
+
+    # Courses associated with this student account.
+    courses: Mapped[list["Course"]] = relationship(
+        back_populates="user"
     )

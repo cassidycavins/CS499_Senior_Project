@@ -7,7 +7,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import Course, QuizAttempt, TopicPerformance
+from app.models import Course, User, QuizAttempt, TopicPerformance
+from app.services.auth_dependencies import require_user
 from app.study_tools.quiz_store import save_quiz
 
 
@@ -39,16 +40,33 @@ def test_db():
 def test_duplicate_quiz_submission(test_db):
     """Verify that a quiz can only be submitted once."""
 
-    # Create a course in the test database.
+    # Create a student and course in the isolated test database.
     with test_db() as db:
+        user = User(
+            name="Test Student",
+            email="duplicate.test@example.com",
+            password_hash="test-only-hash",
+        )
+        db.add(user)
+        db.flush()
+
         course = Course(
             name="Duplicate Test",
             code="TEST101",
+            user_id=user.id,
         )
         db.add(course)
         db.commit()
-        db.refresh(course)
+
+        user_id = user.id
         course_id = course.id
+
+    # Authenticate requests as the test student.
+    def override_require_user():
+        with test_db() as db:
+            return db.get(User, user_id)
+
+    app.dependency_overrides[require_user] = override_require_user
 
     # Create a quiz with one valid question.
     questions = [
@@ -73,17 +91,20 @@ def test_duplicate_quiz_submission(test_db):
         "answers": {"1": 0},
     }
 
-    # Submit the same quiz twice.
-    with TestClient(app) as client:
-        first = client.post(
-            "/study-tools/submit-quiz",
-            json=payload,
-        )
+    # Submit the same quiz twice as the authenticated student.
+    try:
+        with TestClient(app) as client:
+            first = client.post(
+                "/study-tools/submit-quiz",
+                json=payload,
+            )
 
-        second = client.post(
-            "/study-tools/submit-quiz",
-            json=payload,
-        )
+            second = client.post(
+                "/study-tools/submit-quiz",
+                json=payload,
+            )
+    finally:
+        app.dependency_overrides.pop(require_user, None)
 
     # Verify that only one attempt was saved.
     with test_db() as db:
