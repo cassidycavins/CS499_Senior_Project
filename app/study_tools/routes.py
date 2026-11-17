@@ -18,6 +18,8 @@ from app.services.pdf_extractor import extract_text_from_pdf
 from .flashcard_generator import generate_ai_flashcards
 from app.performance_crud import save_quiz_attempt
 from app.study_tools.quiz_store import get_quiz_course_id
+from app.models import User
+from app.services.auth_dependencies import require_user
 
 from .ai_generator import generate_ai_quiz
 
@@ -72,11 +74,13 @@ def get_pdf_material_text(
     db: Session,
     course_id: int,
     material_id: int,
+    user_id: int,
 ) -> tuple[str, str]:
     """Retrieve and extract text from an uploaded course PDF."""
 
     # Verify the course exists.
-    course = crud.get_course(db, course_id)
+    # Verify the student owns the course before reading its PDF.
+    course = crud.get_course(db, course_id, user_id)
 
     if course is None:
         raise HTTPException(
@@ -139,6 +143,7 @@ def get_pdf_material_text(
 def study_tools_page(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
     course_id: int | None = None,
     mode: str = "quiz",
 ):
@@ -146,7 +151,8 @@ def study_tools_page(
     materials = []
 
     if course_id is not None:
-        course = crud.get_course(db, course_id)
+        # Retrieve the course only if the student owns it.
+        course = crud.get_course(db, course_id, current_user.id)
 
         if course is None:
             raise HTTPException(
@@ -183,16 +189,17 @@ def study_tools_page(
 @router.post("/generate-quiz-from-material")
 def generate_quiz_from_material(
     request: GenerateFromMaterialRequest,
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db)],current_user: Annotated[User, Depends(require_user)],
 ):
     """Generate an AI quiz using an uploaded course PDF."""
 
     # Retrieve validated PDF text and its original filename.
     text, title = get_pdf_material_text(
-        db,
-        request.course_id,
-        request.material_id,
-    )
+    db,
+    request.course_id,
+    request.material_id,
+    current_user.id,
+)
 
     try:
         # Reuse the existing source preparation and AI generator.
@@ -237,6 +244,7 @@ def generate_quiz_from_material(
 def submit_quiz(
     request: SubmitQuizRequest,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     questions = get_quiz(request.quiz_id)
     course_id = get_quiz_course_id(request.quiz_id)
@@ -249,6 +257,14 @@ def submit_quiz(
                 "Please generate a new quiz."
             ),
         )
+    # Prevent students from submitting quizzes for another account.
+    course = crud.get_course(db, course_id, current_user.id)
+
+    if course is None:
+        raise HTTPException(
+        status_code=404,
+        detail="Quiz not found or access denied.",
+    )
 
     # Validate question IDs.
     valid_ids = {
@@ -331,16 +347,17 @@ def submit_quiz(
 @router.post("/generate-flashcards-from-material")
 def generate_flashcards_from_material(
     request: GenerateFromMaterialRequest,
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db)],current_user: Annotated[User, Depends(require_user)],
 ):
     """Generate AI flashcards from an uploaded course PDF."""
 
     # Retrieve validated PDF text and filename.
     text, title = get_pdf_material_text(
-        db,
-        request.course_id,
-        request.material_id,
-    )
+    db,
+    request.course_id,
+    request.material_id,
+    current_user.id,
+)
 
     try:
         # Reuse the existing source preparation and AI generator.

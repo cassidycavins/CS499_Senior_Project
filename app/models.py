@@ -16,9 +16,15 @@ class Course(Base):
     )
 
     # Identify the student who owns this course.
-    user_id: Mapped[int | None] = mapped_column(
+
+    user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
-        nullable=True
+        nullable=False,
+        index=True
+    )
+
+    user: Mapped["User"] = relationship(
+        back_populates="courses"
     )
 
     name: Mapped[str] = mapped_column(
@@ -299,6 +305,12 @@ class User(Base):
         nullable=False
     )
 
+    # Courses associated with this student account.
+    courses: Mapped[list["Course"]] = relationship(
+        back_populates="user"
+    )
+
+
 class GoogleCalendarConnection(Base):
     """Store encrypted Google Calendar credentials for each student."""
 
@@ -317,7 +329,7 @@ class GoogleCalendarConnection(Base):
         nullable=False
     )
 
-    # OAuth credentials will be encrypted before storage.
+    # OAuth credentials are encrypted before storage.
     encrypted_credentials: Mapped[str] = mapped_column(
         String,
         nullable=False

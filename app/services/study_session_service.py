@@ -22,8 +22,6 @@ def save_study_recommendations(
         start = datetime.fromisoformat(recommendation["start"])
         end = datetime.fromisoformat(recommendation["end"])
 
-        course_id = recommendation["course_id"]
-
         # Only save recommendations for courses owned by this student.
         course = db.scalar(
             select(Course).where(
@@ -35,7 +33,6 @@ def save_study_recommendations(
         if course is None:
             raise ValueError("Course not found or access denied.")
 
-        
         # Avoid creating another pending recommendation for the same topic.
         existing_topic = db.scalar(
             select(StudySession).where(
@@ -82,38 +79,39 @@ def save_study_recommendations(
     return saved_sessions
 
 
+
 def update_study_session_status(
     db: Session,
     session_id: int,
     new_status: str,
     user_id: int,
 ) -> StudySession | None:
-    """Approve or reject a study session owned by the student."""
+    """Update a study session only if the student owns it."""
 
     if new_status not in {"approved", "rejected"}:
         raise ValueError("Invalid study session status.")
 
-    session = db.get(StudySession, session_id)
-
-    # Find the session only if it belongs to this student.
-    session = (
-        db.query(StudySession)
-        .filter(
+    # Verify both the session owner and course owner.
+    statement = (
+        select(StudySession)
+        .join(Course, StudySession.course_id == Course.id)
+        .where(
             StudySession.id == session_id,
-            StudySession.user_id == user_id
+            StudySession.user_id == user_id,
+            Course.user_id == user_id,
         )
-        .first()
     )
+
+    session = db.scalar(statement)
 
     if session is None:
         return None
 
-    # Only pending recommendations can be updated.
+    # Prevent changes to sessions already reviewed.
     if session.status != "recommended":
         raise ValueError("This session has already been reviewed.")
 
     session.status = new_status
-
     db.commit()
     db.refresh(session)
 

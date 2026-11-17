@@ -18,7 +18,8 @@ db = SessionLocal()
 
 try:
     # Use an existing course to satisfy the database relationship.
-    courses = crud.get_courses(db)
+    # Retrieve courses belonging to the existing test account.
+    courses = crud.get_courses(db, user_id=1)
 
     if not courses:
         print("Create a course on the dashboard before running this test.")

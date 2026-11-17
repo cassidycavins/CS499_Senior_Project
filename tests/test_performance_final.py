@@ -52,6 +52,35 @@ class TestQuizPerformance(unittest.TestCase):
             weak_topics[0]["topic"], "Memory Management"
         )
 
+    def test_performance_boundaries(self):
+        # Verify classification changes at 60% and 80%.
+        self.assertEqual(classify_performance(59), "Needs Improvement")
+        self.assertEqual(classify_performance(60), "Developing")
+        self.assertEqual(classify_performance(79), "Developing")
+        self.assertEqual(classify_performance(80), "Proficient")
+
+        # Reject percentages outside the valid range.
+        with self.assertRaises(ValueError):
+            classify_performance(-1)
+
+        with self.assertRaises(ValueError):
+            classify_performance(101)
+
+    def test_weak_topic_boundary(self):
+        # Only scores below 70% should require review.
+        topics = {
+            "Networking": {"correct": 69, "total": 100},
+            "Encryption": {"correct": 70, "total": 100},
+            "Operating Systems": {"correct": 71, "total": 100},
+        }
+
+        weak_topics = identify_weak_topics(topics)
+
+        self.assertEqual(len(weak_topics), 1)
+        self.assertEqual(weak_topics[0]["topic"], "Networking")
+        self.assertEqual(weak_topics[0]["score"], 69)
+        self.assertEqual(weak_topics[0]["status"], "Needs Review")
+
     def test_average_score(self):
         self.assertEqual(
             calculate_average_score([70, 80, 90]), 80.0

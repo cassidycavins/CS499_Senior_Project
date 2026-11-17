@@ -27,6 +27,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Course, StudySession, User
 from app import crud
+from app.models import User
+from app.services.auth_dependencies import require_user
 
 # Quiz performance tracking
 from app.routes.performance import router as performance_router
@@ -104,12 +106,8 @@ def dashboard(
 ):
     """Display all courses on the dashboard."""
 
-    # Display only courses belonging to the logged-in student.
-    courses = db.scalars(
-    select(Course)
-        .where(Course.user_id == current_user.id)
-        .order_by(Course.id)
-    ).all()
+    # Display only courses owned by the logged-in student.
+    courses = crud.get_courses(db, current_user.id)
 
     # Generate study recommendations using quiz performance and availability.
     study_recommendations = []
@@ -120,7 +118,6 @@ def dashboard(
         busy_periods = get_busy_periods(db, current_user.id, days=7)
         available_slots = find_available_slots(busy_periods, days=7)
 
-        
         # Generate recommendations from each student's course performance.
         new_recommendations = []
         used_times = set()
@@ -265,29 +262,60 @@ def approve_study_session(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
 ):
-    """Create the student's Google event before recording approval."""
-    session = db.scalar(select(StudySession).where(
-        StudySession.id == session_id,
-        StudySession.user_id == current_user.id,
-    ))
+    """Create a Google Calendar event before approving an owned session."""
+
+    # Verify the session belongs to the logged-in student.
+    session = db.scalar(
+        select(StudySession).where(
+            StudySession.id == session_id,
+            StudySession.user_id == current_user.id,
+        )
+    )
+
     if session is None:
-        raise HTTPException(status_code=404, detail="Study session not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Study session not found",
+        )
+
+    # Prevent approving a session more than once.
     if session.status != "recommended":
-        raise HTTPException(status_code=400, detail="This session has already been reviewed.")
-    if session.end_time <= datetime.now(ZoneInfo("America/Chicago")).replace(tzinfo=None):
-        raise HTTPException(status_code=400, detail="Cannot schedule a session in the past.")
+        raise HTTPException(
+            status_code=400,
+            detail="This session has already been reviewed.",
+        )
+
+    # Do not schedule sessions that have already passed.
+    if session.end_time <= datetime.now(
+        ZoneInfo("America/Chicago")
+    ).replace(tzinfo=None):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot schedule a session in the past.",
+        )
 
     try:
-        # Insert first; never mark approved if Google Calendar fails.
-        event_id = create_study_event(db, current_user.id, session)
+        # Create the event before saving approval.
+        event_id = create_study_event(
+            db,
+            current_user.id,
+            session,
+        )
     except CalendarNotConnected as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Unable to create Google Calendar event.") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to create Google Calendar event.",
+        ) from exc
 
     session.google_event_id = event_id
     session.status = "approved"
     db.commit()
+
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -297,29 +325,34 @@ def reject_study_session(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
 ):
-    """Reject a study session belonging to the logged-in student."""
+    """Reject a study session owned by the logged-in student."""
 
     try:
         session = update_study_session_status(
             db,
             session_id,
             "rejected",
-            current_user.id
+            current_user.id,
         )
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
     if session is None:
         raise HTTPException(
             status_code=404,
-            detail="Study session not found."
+            detail="Study session not found",
         )
 
     return RedirectResponse(url="/", status_code=303)
 
 @app.get("/courses/add")
-
-def add_course_form(request: Request, current_user: Annotated[User, Depends(require_user)]):
+def add_course_form(
+    request: Request,
+    current_user: Annotated[User, Depends(require_user)],
+):
     """Display the form for creating a course."""
 
     return templates.TemplateResponse(
@@ -335,7 +368,7 @@ def add_course(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
 ):
-    """Validate and save a new course."""
+    """Validate and save a course for the logged-in student."""
 
     name = name.strip()
     code = code.strip()
@@ -346,9 +379,13 @@ def add_course(
             detail="Course name and code are required",
         )
 
-    course = Course(name=name, code=code, user_id=current_user.id)
-    db.add(course)
-    db.commit()
+    # Associate the new course with its owner.
+    crud.create_course(
+        db=db,
+        name=name,
+        code=code,
+        user_id=current_user.id,
+    )
 
     return RedirectResponse(
         url="/",
@@ -365,9 +402,10 @@ def course_detail(
 ):
     """Display course information and uploaded materials."""
 
-    course = crud.get_course(db, course_id)
+    # Only retrieve courses owned by the logged-in student.
+    course = crud.get_course(db, course_id, current_user.id)
 
-    if course is None or course.user_id != current_user.id:
+    if course is None:
         raise HTTPException(
             status_code=404,
             detail="Course not found",
@@ -397,7 +435,9 @@ async def upload_study_material(
 ):
     """Validate, store, and register an uploaded PDF."""
 
-    course = crud.get_course(db, course_id)
+    # Only retrieve courses owned by the logged-in student.
+    # Verify course ownership before accepting the upload.
+    course = crud.get_course(db, course_id, current_user.id)
 
     if course is None or course.user_id != current_user.id:
         raise HTTPException(
@@ -479,6 +519,15 @@ def view_study_material(
 ):
     """Open an uploaded PDF in the browser."""
 
+    # Verify the student owns the requested course.
+    course = crud.get_course(db, course_id, current_user.id)
+
+    if course is None:
+        raise HTTPException(
+        status_code=404,
+        detail="Course not found",
+    )
+
     material = crud.get_study_material(
         db,
         material_id,
@@ -527,6 +576,15 @@ def download_study_material(
 ):
     """Download an uploaded PDF."""
 
+    # Verify the student owns the course before downloading.
+    course = crud.get_course(db, course_id, current_user.id)
+
+    if course is None:
+        raise HTTPException(
+        status_code=404,
+        detail="Course not found",
+    )
+
     material = crud.get_study_material(
         db,
         material_id,
@@ -573,6 +631,15 @@ def delete_study_material(
     current_user: Annotated[User, Depends(require_user)],
 ):
     """Delete an uploaded PDF and its database record."""
+
+    # Verify course ownership before deleting the PDF.
+    course = crud.get_course(db, course_id, current_user.id)
+
+    if course is None:
+        raise HTTPException(
+        status_code=404,
+        detail="Course not found",
+    )
 
     material = crud.get_study_material(
         db,
@@ -628,7 +695,8 @@ def view_material_text(
 ):
     """Extract and display text from an uploaded PDF."""
 
-    course = crud.get_course(db, course_id)
+    # Only retrieve courses owned by the logged-in student.
+    course = crud.get_course(db, course_id, current_user.id)
 
     if course is None or course.user_id != current_user.id:
         raise HTTPException(
