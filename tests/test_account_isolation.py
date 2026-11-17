@@ -10,6 +10,8 @@ from app.models import Course, User, StudyMaterial, StudySession
 from app.services.auth_dependencies import require_user
 from app.study_tools.quiz_store import save_quiz
 
+from unittest.mock import patch
+
 
 @pytest.fixture
 def isolation_db():
@@ -328,6 +330,7 @@ def test_study_session_owner_can_update(
 
         study_session = StudySession(
             course_id=course_b_id,
+            user_id=student_b_id,
             topic="Operating Systems",
             topic_score=50.0,
             start_time=start,
@@ -346,11 +349,22 @@ def test_study_session_owner_can_update(
 
     app.dependency_overrides[require_user] = authenticate_student_b
 
-    with TestClient(app) as client:
-        response = client.post(
-            f"/study-sessions/{session_id}/{action}",
-            follow_redirects=False,
-        )
+    # Simulate Google Calendar event creation for approval.
+    with patch(
+        "app.main.create_study_event",
+        return_value="test-google-event-123",
+    ) as mock_create_event:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/study-sessions/{session_id}/{action}",
+                follow_redirects=False,
+            )
+
+        # Approval creates a calendar event; rejection does not.
+        if action == "approve":
+            mock_create_event.assert_called_once()
+        else:
+            mock_create_event.assert_not_called()
 
     # The owner should be redirected after a successful update.
     assert response.status_code == 303
@@ -359,6 +373,9 @@ def test_study_session_owner_can_update(
     with SessionLocal() as db:
         saved_session = db.get(StudySession, session_id)
         assert saved_session.status == expected_status
+
+        if action == "approve":
+            assert saved_session.google_event_id == "test-google-event-123"
 
 @pytest.mark.parametrize("action", ["approve", "reject"])
 def test_study_session_requires_login(isolation_db, action):
