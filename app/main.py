@@ -1,6 +1,6 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from app.google_calendar.service import get_upcoming_events
+from app.google_calendar.service import get_upcoming_events, CalendarNotConnected, create_study_event
 from typing import Annotated
 from pathlib import Path
 from uuid import uuid4
@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import StudySession
+from app.models import Course, StudySession, User
 from app import crud
 
 # Quiz performance tracking
@@ -43,7 +43,7 @@ from app.performance_crud import get_topic_performance
 
 # PDF text extraction
 from app.services.pdf_extractor import extract_text_from_pdf
-
+from app.services.auth_dependencies import require_user
 
 # Initialize FastAPI and register feature routes.
 app = FastAPI()
@@ -100,10 +100,16 @@ app.mount(
 def dashboard(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Display all courses on the dashboard."""
 
-    courses = crud.get_courses(db)
+    # Display only courses belonging to the logged-in student.
+    courses = db.scalars(
+    select(Course)
+        .where(Course.user_id == current_user.id)
+        .order_by(Course.id)
+    ).all()
 
     # Generate study recommendations using quiz performance and availability.
     study_recommendations = []
@@ -111,64 +117,24 @@ def dashboard(
 
     try:
         # Retrieve calendar availability.
-        busy_periods = get_busy_periods(days=7)
+        busy_periods = get_busy_periods(db, current_user.id, days=7)
         available_slots = find_available_slots(busy_periods, days=7)
 
-        # Collect recommendations while preserving their course IDs.
-        topic_records = []
-
-        for course in courses:
-            records = get_topic_performance(db, course.id)
-
-            for record in records:
-                topic_records.append({
-                    "course_id": course.id,
-                    "record": record,
-                })
-
-        # Generate recommendations for each course.
+        
+        # Generate recommendations from each student's course performance.
+        new_recommendations = []
         used_times = set()
 
         for course in courses:
-            course_records = [
-                item["record"]
-                for item in topic_records
-                if item["course_id"] == course.id
-            ]
+            course_records = get_topic_performance(db, course.id)
 
             course_recommendations = generate_study_recommendations(
                 course_records,
                 available_slots,
             )
 
-            # Save recommendations before displaying them.
-            save_study_recommendations(db, study_recommendations)
-
-
-            # Retrieve saved recommendations awaiting student approval.
-            pending_sessions = db.scalars(
-                select(StudySession)
-                .where(StudySession.status == "recommended")
-                .order_by(StudySession.start_time)
-            ).all()
-
-            # Display saved sessions with their database IDs.
-            study_recommendations = []
-
-            for session in pending_sessions:
-                study_recommendations.append({
-                    "id": session.id,
-                    "course_id": session.course_id,
-                    "topic": session.topic,
-                    "score": session.topic_score,
-                    "start": session.start_time.isoformat(),
-                    "end": session.end_time.isoformat(),
-                    "status": session.status,
-                })
-
-
             for recommendation in course_recommendations:
-                # Avoid assigning the same time to multiple courses.
+                # Prevent overlapping recommendations across courses.
                 time_key = (
                     recommendation["start"],
                     recommendation["end"],
@@ -177,9 +143,42 @@ def dashboard(
                 if time_key in used_times:
                     continue
 
-                recommendation["course_id"] = course.id
-                study_recommendations.append(recommendation)
+                new_recommendations.append({
+                    **recommendation,
+                    "course_id": course.id,
+                })
+
                 used_times.add(time_key)
+
+        # Save recommendations under the logged-in student's account.
+        save_study_recommendations(
+            db,
+            new_recommendations,
+            current_user.id,
+        )
+
+        # Retrieve only this student's pending recommendations.
+        pending_sessions = db.scalars(
+            select(StudySession)
+            .where(
+                StudySession.user_id == current_user.id,
+                StudySession.status == "recommended",
+            )
+            .order_by(StudySession.start_time)
+        ).all()
+
+        study_recommendations = [
+            {
+                "id": session.id,
+                "course_id": session.course_id,
+                "topic": session.topic,
+                "score": session.topic_score,
+                "start": session.start_time.isoformat(),
+                "end": session.end_time.isoformat(),
+                "status": session.status,
+            }
+            for session in pending_sessions
+        ]
 
         # Format recommended session times for the dashboard.
         for recommendation in study_recommendations:
@@ -195,7 +194,7 @@ def dashboard(
                 "%b %d, %Y at %I:%M %p"
             )
 
-    except FileNotFoundError:
+    except (FileNotFoundError, CalendarNotConnected):
         # Calendar has not been connected.
         pass
 
@@ -209,9 +208,9 @@ def dashboard(
     calendar_error = None
 
     try:
-        calendar_events = get_upcoming_events(days=7)
+        calendar_events = get_upcoming_events(db, current_user.id, days=7)
         calendar_connected = True
-    except FileNotFoundError:
+    except (FileNotFoundError, CalendarNotConnected):
     # Google Calendar has not been connected.
         pass
     except Exception:
@@ -259,23 +258,36 @@ def dashboard(
         },
     )
 
+
 @app.post("/study-sessions/{session_id}/approve")
 def approve_study_session(
     session_id: int,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
-    """Approve a recommended study session."""
+    """Create the student's Google event before recording approval."""
+    session = db.scalar(select(StudySession).where(
+        StudySession.id == session_id,
+        StudySession.user_id == current_user.id,
+    ))
+    if session is None:
+        raise HTTPException(status_code=404, detail="Study session not found.")
+    if session.status != "recommended":
+        raise HTTPException(status_code=400, detail="This session has already been reviewed.")
+    if session.end_time <= datetime.now(ZoneInfo("America/Chicago")).replace(tzinfo=None):
+        raise HTTPException(status_code=400, detail="Cannot schedule a session in the past.")
 
     try:
-        session = update_study_session_status(
-            db, session_id, "approved"
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        # Insert first; never mark approved if Google Calendar fails.
+        event_id = create_study_event(db, current_user.id, session)
+    except CalendarNotConnected as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Unable to create Google Calendar event.") from exc
 
-    if session is None:
-        raise HTTPException(status_code=404, detail="Study session not found")
-
+    session.google_event_id = event_id
+    session.status = "approved"
+    db.commit()
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -283,23 +295,31 @@ def approve_study_session(
 def reject_study_session(
     session_id: int,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
-    """Reject a recommended study session."""
+    """Reject a study session belonging to the logged-in student."""
 
     try:
         session = update_study_session_status(
-            db, session_id, "rejected"
+            db,
+            session_id,
+            "rejected",
+            current_user.id
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
 
     if session is None:
-        raise HTTPException(status_code=404, detail="Study session not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Study session not found."
+        )
 
     return RedirectResponse(url="/", status_code=303)
 
 @app.get("/courses/add")
-def add_course_form(request: Request):
+
+def add_course_form(request: Request, current_user: Annotated[User, Depends(require_user)]):
     """Display the form for creating a course."""
 
     return templates.TemplateResponse(
@@ -313,6 +333,7 @@ def add_course(
     name: Annotated[str, Form()],
     code: Annotated[str, Form()],
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Validate and save a new course."""
 
@@ -325,11 +346,9 @@ def add_course(
             detail="Course name and code are required",
         )
 
-    crud.create_course(
-        db=db,
-        name=name,
-        code=code,
-    )
+    course = Course(name=name, code=code, user_id=current_user.id)
+    db.add(course)
+    db.commit()
 
     return RedirectResponse(
         url="/",
@@ -342,12 +361,13 @@ def course_detail(
     request: Request,
     course_id: int,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Display course information and uploaded materials."""
 
     course = crud.get_course(db, course_id)
 
-    if course is None:
+    if course is None or course.user_id != current_user.id:
         raise HTTPException(
             status_code=404,
             detail="Course not found",
@@ -373,12 +393,13 @@ async def upload_study_material(
     course_id: int,
     file: Annotated[UploadFile, File()],
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Validate, store, and register an uploaded PDF."""
 
     course = crud.get_course(db, course_id)
 
-    if course is None:
+    if course is None or course.user_id != current_user.id:
         raise HTTPException(
             status_code=404,
             detail="Course not found",
@@ -454,6 +475,7 @@ def view_study_material(
     course_id: int,
     material_id: int,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Open an uploaded PDF in the browser."""
 
@@ -462,7 +484,9 @@ def view_study_material(
         material_id,
     )
 
-    if material is None or material.course_id != course_id:
+    course = db.get(Course, course_id)
+    if (course is None or course.user_id != current_user.id
+            or material is None or material.course_id != course_id):
         raise HTTPException(
             status_code=404,
             detail="Study material not found",
@@ -499,6 +523,7 @@ def download_study_material(
     course_id: int,
     material_id: int,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Download an uploaded PDF."""
 
@@ -507,7 +532,9 @@ def download_study_material(
         material_id,
     )
 
-    if material is None or material.course_id != course_id:
+    course = db.get(Course, course_id)
+    if (course is None or course.user_id != current_user.id
+            or material is None or material.course_id != course_id):
         raise HTTPException(
             status_code=404,
             detail="Study material not found",
@@ -543,6 +570,7 @@ def delete_study_material(
     course_id: int,
     material_id: int,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Delete an uploaded PDF and its database record."""
 
@@ -551,7 +579,9 @@ def delete_study_material(
         material_id,
     )
 
-    if material is None or material.course_id != course_id:
+    course = db.get(Course, course_id)
+    if (course is None or course.user_id != current_user.id
+            or material is None or material.course_id != course_id):
         raise HTTPException(
             status_code=404,
             detail="Study material not found",
@@ -594,12 +624,13 @@ def view_material_text(
     course_id: int,
     material_id: int,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ):
     """Extract and display text from an uploaded PDF."""
 
     course = crud.get_course(db, course_id)
 
-    if course is None:
+    if course is None or course.user_id != current_user.id:
         raise HTTPException(
             status_code=404,
             detail="Course not found",
@@ -610,7 +641,9 @@ def view_material_text(
         material_id,
     )
 
-    if material is None or material.course_id != course_id:
+    course = db.get(Course, course_id)
+    if (course is None or course.user_id != current_user.id
+            or material is None or material.course_id != course_id):
         raise HTTPException(
             status_code=404,
             detail="Study material not found",
